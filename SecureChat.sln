@@ -1,0 +1,43 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.9.34902.65
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "SecureChat", "SecureChat\SecureChat.csproj", "{8BF9CC75-43C7-4F04-8E64-1F8A37AE1FEE}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Backend", "Backend\Backend.csproj", "{56ACC22A-3193-4776-82DC-95287C569B84}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SRP.Extra", "SRP.Extra\SRP.Extra.csproj", "{60EA2FF5-DA8A-45D5-9F23-930CC5425AE1}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SecureChat.Protocols", "SecureChat.Protocols\SecureChat.Protocols.csproj", "{465CC3FE-8A42-48AE-8CB2-56D771353889}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{8BF9CC75-43C7-4F04-8E64-1F8A37AE1FEE}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{8BF9CC75-43C7-4F04-8E64-1F8A37AE1FEE}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{8BF9CC75-43C7-4F04-8E64-1F8A37AE1FEE}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{8BF9CC75-43C7-4F04-8E64-1F8A37AE1FEE}.Release|Any CPU.Build.0 = Release|Any CPU
+		{56ACC22A-3193-4776-82DC-95287C569B84}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{56ACC22A-3193-4776-82DC-95287C569B84}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{56ACC22A-3193-4776-82DC-95287C569B84}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{56ACC22A-3193-4776-82DC-95287C569B84}.Release|Any CPU.Build.0 = Release|Any CPU
+		{60EA2FF5-DA8A-45D5-9F23-930CC5425AE1}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{60EA2FF5-DA8A-45D5-9F23-930CC5425AE1}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{60EA2FF5-DA8A-45D5-9F23-930CC5425AE1}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{60EA2FF5-DA8A-45D5-9F23-930CC5425AE1}.Release|Any CPU.Build.0 = Release|Any CPU
+		{465CC3FE-8A42-48AE-8CB2-56D771353889}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{465CC3FE-8A42-48AE-8CB2-56D771353889}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{465CC3FE-8A42-48AE-8CB2-56D771353889}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{465CC3FE-8A42-48AE-8CB2-56D771353889}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {30D01AB0-C920-4003-B9E7-DB90791420E2}
+	EndGlobalSection
+EndGlobal

@@ -1,0 +1,67 @@
+﻿<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chat Router</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <!-- Кнопка настроек в углу -->
+    <button id="btn-settings-open" class="btn-icon-corner">⚙️</button>
+
+    <!-- Модальное окно -->
+    <div id="settings-modal" class="modal-overlay hidden">
+        <div class="menu-card modal-content">
+            <h1 class="title">Настройки</h1>
+            <div class="actions-stack">
+                <div class="input-group">
+                    <label>Адрес сервера</label>
+                    <!-- Обертка input-area гарантирует идентичные отступы и стили -->
+                    <div class="input-area">
+                        <input type="text" id="server-url-input" placeholder="https://api.example.com">
+                    </div>
+                </div>
+                <button id="btn-settings-save" class="btn-primary">Сохранить</button>
+                <button id="btn-settings-close" class="btn-secondary">Закрыть</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="chat-container" class="router-center">
+        <!-- Универсальная форма входа/создания -->
+        <div class="menu-card" id="auth-view">
+            <h1 class="title">Мессенджер</h1>
+
+            <!-- Новое поле: Имя пользователя -->
+            <div class="input-group">
+                <label>Ваше имя</label>
+                <div class="input-area">
+                    <input type="text" id="user-name" placeholder="Введите никнейм..." value="USERNAME">
+                </div>
+            </div>
+
+            <div class="input-group">
+                <label>Имя комнаты</label>
+                <div class="input-area">
+                    <input type="text" id="room-name" placeholder="my-awesome-room" value="MY_ROOM">
+                </div>
+            </div>
+
+            <div class="input-group">
+                <label>Пароль</label>
+                <div class="input-area">
+                    <input type="password" id="room-password" placeholder="••••••••" value="PASSWORD">
+                </div>
+            </div>
+
+            <div class="actions-stack">
+                <button id="btn-create" class="btn-primary">Создать комнату</button>
+                <button id="btn-join" class="btn-secondary">Войти в чат</button>
+                <div id="error-display" class="error-badge hidden"></div>
+            </div>
+        </div>
+    </div>
+    <script src="index.js"></script>
+</body>
+</html>
