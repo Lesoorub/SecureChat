@@ -1,25 +1,49 @@
-﻿/* Общие сбросы и настройки экрана */
+﻿/* 1. Переменные */
+:root {
+    --primary-color: #0078d4;
+    --bg-main: #f0f2f5;
+    --bg-card: #ffffff;
+    --text-main: #050505;
+    --text-muted: #65676b;
+    --border-color: #ddd;
+    --radius-msg: 18px;
+}
+
+/* 2. Базовые сбросы */
 * {
     box-sizing: border-box;
 }
 
-html, body {
+body, html {
     height: 100%;
     margin: 0;
-    overflow: hidden; /* Запрещаем скролл всему окну */
+    overflow: hidden;
     font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
-    background-color: #ffffff;
+}
+
+/* 3. Лейаут */
+#app-wrapper {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
 }
 
 #chat-container {
     flex-grow: 1;
     display: flex;
     flex-direction: column;
-    min-height: 0; /* Важно: позволяет дочерним элементам скроллиться */
-    background: #f0f2f5;
+    min-height: 0;
+    background: var(--bg-main);
 }
 
-/* Контейнер сообщений */
+#chat-header {
+    background: var(--bg-card);
+    padding: 10px;
+    border-bottom: 1px solid var(--border-color);
+    flex-shrink: 0;
+}
+
+/* 4. Чат и сообщения */
 #messages-container {
     flex-grow: 1;
     overflow-y: auto;
@@ -27,15 +51,13 @@ html, body {
     display: flex;
     flex-direction: column;
     gap: 16px;
-    background-color: #f0f2f5;
 }
 
-/* Обертка для сообщения и имени */
 .message-wrapper {
-    max-width: 85%;
     display: flex;
     flex-direction: column;
 }
+
     .message-wrapper.user {
         align-self: flex-end;
     }
@@ -44,58 +66,27 @@ html, body {
         align-self: flex-start;
     }
 
-/* Имя отправителя */
-.sender-name {
-    font-size: 12px;
-    color: #65676b;
-    margin-left: 8px;
-    margin-bottom: 2px;
-}
-
-/* Основной блок сообщения */
 .message {
+    position: relative; /* Важно для абсолютного позиционирования статуса внутри */
     padding: 10px 16px;
-    border-radius: 18px;
+    border-radius: var(--radius-msg);
     font-size: 15px;
     line-height: 1.4;
-    position: relative;
     word-wrap: break-word;
-    box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+    text-align: justify;
 }
 
-/* Стили для своих сообщений */
-.user .message {
-    background: #0078d4;
-    color: white;
-    border-bottom-right-radius: 4px;
-}
-
-/* Стили для чужих сообщений (исправленный фон) */
-.bot .message {
-    background: #e4e6eb;
-    color: #050505;
-    border-bottom-left-radius: 4px;
-}
-
-/* Компактный индикатор статуса */
+/* 2. Восстанавливаем стили индикаторов статуса */
 .status {
+    position: relative;
     display: inline-block;
     width: 10px;
     height: 10px;
     margin-left: 8px;
     vertical-align: middle;
-    position: relative;
 }
 
-    /* Анимация спиннера (Pending) */
-    .status.pending {
-        border: 2px solid rgba(255, 255, 255, 0.3);
-        border-top: 2px solid #fff;
-        border-radius: 50%;
-        animation: spin 0.8s linear infinite;
-    }
-
-    /* Иконка галочки (Sent) */
+    /* Галочка (Отправлено) */
     .status.sent::after {
         content: "✓";
         font-size: 11px;
@@ -104,11 +95,19 @@ html, body {
         left: 0;
     }
 
-    /* Иконка ошибки (Error) */
+    /* Крутилка (Ожидание) */
+    .status.pending {
+        border: 2px solid rgba(255, 255, 255, 0.3);
+        border-top: 2px solid #fff;
+        border-radius: 50%;
+        animation: spin .8s linear infinite;
+    }
+
+    /* Ошибка */
     .status.error::after {
         content: "!";
         font-size: 12px;
-        font-weight: bold;
+        font-weight: 700;
         color: #ffbaba;
         position: absolute;
         top: -7px;
@@ -117,7 +116,7 @@ html, body {
 
 @keyframes spin {
     from {
-        transform: rotate(0deg);
+        transform: rotate(0);
     }
 
     to {
@@ -125,81 +124,140 @@ html, body {
     }
 }
 
-/* Область ввода */
-.input-area {
+@keyframes pulse-loading {
+    0% {
+        opacity: 1;
+    }
+
+    50% {
+        opacity: 0.6;
+    }
+
+    100% {
+        opacity: 1;
+    }
+}
+
+/* Имя отправителя */
+.sender-name {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin: 0 8px 2px;
+}
+
+.user .message {
+    background: var(--primary-color);
+    color: #fff;
+    border-bottom-right-radius: 4px;
+}
+
+.bot .message {
+    background: #e4e6eb;
+    color: var(--text-main);
+    border-bottom-left-radius: 4px;
+}
+
+/* 5. Участники и Аватары */
+.participant {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    width: 70px;
     flex-shrink: 0;
-    background: #fff;
+}
+
+.avatar {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    background: #444;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    font-weight: 700;
+    font-size: 16px;
+    border: 3px solid transparent;
+    transition: .2s;
+}
+
+.participant.speaking .avatar {
+    border-color: #2ecc71;
+    box-shadow: 0 0 12px rgba(46,204,113,.5);
+    transform: scale(1.05);
+}
+
+.participant-name {
+    font-size: 11px;
+    color: #eee;
+    width: 100%;
+    text-align: center;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* 6. Поле ввода и Кнопки */
+.input-area {
     padding: 15px;
     display: flex;
     gap: 10px;
     border-top: 1px solid #e0e0e0;
+    background: var(--bg-card);
+    flex-shrink: 0;
 }
 
 input {
     flex: 1;
     padding: 12px 18px;
-    border: 1px solid #ddd;
     border-radius: 24px;
-    outline: none;
+    border: 1px solid var(--border-color);
+    background: var(--bg-main);
+    outline: 0;
     font-size: 15px;
-    background: #f0f2f5;
-    transition: border-color 0.2s;
 }
-
-    input:focus {
-        border-color: #0078d4;
-        background: #fff;
-    }
 
 button {
     background: none;
     border: none;
-    color: #0078d4;
+    color: var(--primary-color);
     cursor: pointer;
-    padding: 4px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: transform 0.1s;
+    transition: transform .1s;
 }
 
     button:active {
-        transform: scale(0.9);
+        transform: scale(.9);
     }
 
-/* Системное уведомление */
-.message-wrapper.system {
-    align-self: center; /* Центрируем */
-    max-width: 90%;
-    margin: 8px 0;
-}
-
-    .message-wrapper.system .message {
-        background: transparent; /* Убираем фон */
-        color: #8e8e93; /* Серый текст */
-        font-size: 13px;
-        font-weight: 500;
-        text-align: center;
-        box-shadow: none; /* Убираем тень */
-        padding: 4px 10px;
-    }
-
-/* Скрываем имя и статус для системных сообщений, если они переданы по ошибке */
-.system .sender-name, .system .status {
-    display: none !important;
-}
-
-#app-wrapper {
+.call-controls {
     display: flex;
-    flex-direction: column;
-    height: 100vh;
+    justify-content: center;
+    align-items: center; /* Центрирование по вертикали */
+    gap: 20px;
+    padding: 0 0 20px;
 }
 
+/* Кнопки в панели вызова */
+.call-controls button {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: #333;
+    color: #fff;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+    .call-controls button.danger {
+        background: #e74c3c;
+    }
+
+/* 7. Панель вызова и модалка */
 #call-panel {
-    flex-shrink: 0;
     background: #1e1e1e;
-    display: flex;
-    flex-direction: column;
+    flex-shrink: 0;
 }
 
     #call-panel.hidden {
@@ -208,187 +266,25 @@ button {
 
 #participants-list {
     display: flex;
-    gap: 12px;
-    overflow-x: auto;
-    padding-bottom: 5px;
-}
-
-.participant {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 8px;
-    width: 70px; /* Фиксированная ширина для ровной сетки */
-    flex-shrink: 0; /* Запрещаем сжимать карточку участника */
-}
-
-.avatar {
-    width: 45px;
-    height: 45px;
-    border-radius: 50%;
-    background: #444;
-    border: 2px solid transparent;
-    transition: border-color 0.2s, box-shadow 0.2s;
-}
-
-/* Зеленая рамочка, когда участник говорит */
-.participant.speaking .avatar {
-    border-color: #2ecc71;
-    box-shadow: 0 0 10px #2ecc71;
-}
-
-.call-controls {
-    display: flex;
+    flex-wrap: wrap;
     justify-content: center;
-    gap: 20px;
-    padding-bottom: 15px; /* Добавляет отступ от нижнего края */
+    gap: 20px 15px;
+    padding: 15px;
+    max-height: 40vh;
+    overflow-y: auto;
 }
 
-    .call-controls button {
-        width: 40px;
-        height: 40px;
-        border-radius: 50%;
-        background: #333;
-        color: white;
-        font-size: 18px;
-    }
-
-        .call-controls button.active {
-            background: #e74c3c;
-        }
-
-        .call-controls button.danger {
-            background: #e74c3c;
-            color: white;
-        }
-
-#chat-header {
-    flex-shrink: 0;
-    padding: 10px;
-    background: #fff;
-    border-bottom: 1px solid #ddd;
-}
-
-#settings-btn {
-    background: #444; /* Чуть светлее основных кнопок */
-    transition: transform 0.3s ease;
-}
-
-    #settings-btn:hover {
-        transform: rotate(45deg);
-        background: #555;
-    }
 dialog {
     border: none;
     border-radius: 12px;
     padding: 0;
-    box-shadow: 0 0 20px rgba(0,0,0,0.5);
     width: 350px;
-    background: #fff;
+    box-shadow: 0 0 20px rgba(0,0,0,.5);
 }
-
-    dialog::backdrop {
-        background: rgba(0, 0, 0, 0.6);
-        backdrop-filter: blur(2px);
-    }
 
 .modal-content {
     padding: 20px;
     display: flex;
     flex-direction: column;
     gap: 15px;
-}
-
-.setting-item {
-    display: flex;
-    flex-direction: column;
-    gap: 5px;
-}
-
-    .setting-item select {
-        padding: 8px;
-        border-radius: 6px;
-        border: 1px solid #ddd;
-        background: #f9f9f9;
-    }
-
-.modal-actions {
-    display: flex;
-    justify-content: flex-end;
-    gap: 10px;
-    margin-top: 10px;
-}
-
-    .modal-actions button {
-        padding: 8px 16px;
-        border-radius: 6px;
-        cursor: pointer;
-    }
-
-.primary {
-    background: #0078d4;
-    color: white;
-    border: none;
-}
-
-.secondary {
-    background: #eee;
-    border: 1px solid #ccc;
-}
-.avatar {
-    width: 48px;
-    height: 48px;
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: white;
-    font-weight: bold;
-    font-size: 16px;
-    letter-spacing: 1px;
-    border: 3px solid transparent; /* Место под рамку индикации речи */
-    transition: all 0.2s ease;
-    user-select: none;
-}
-
-/* Рамка при разговоре */
-.participant.speaking .avatar {
-    border-color: #2ecc71;
-    box-shadow: 0 0 12px rgba(46, 204, 113, 0.5);
-    transform: scale(1.05);
-}
-
-.participant-name {
-    font-size: 11px;
-    color: #eee;
-    max-width: 65px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    text-align: center;
-}
-
-/* Стили для горизонтального списка */
-#participants-list {
-    display: flex;
-    flex-wrap: wrap; /* Разрешаем перенос на новую строку */
-    justify-content: center; /* Центрируем элементы по горизонтали */
-    align-content: flex-start;
-    gap: 20px 15px; /* Отступы: 20px между строками, 15px между колонками */
-    padding: 15px;
-    max-height: 40vh; /* Ограничиваем высоту панели, чтобы она не перекрыла весь чат */
-    overflow-y: auto; /* Если строк станет слишком много, появится вертикальный скролл */
-}
-
-    #participants-list::-webkit-scrollbar {
-        display: none; /* Скрываем скроллбар в Chrome/Edge */
-    }
-.participant-name {
-    font-size: 11px;
-    color: #eee;
-    width: 100%; /* Занимает всю ширину контейнера .participant */
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis; /* Обрезает длинные имена троеточием */
-    text-align: center;
 }

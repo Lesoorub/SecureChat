@@ -1,6 +1,7 @@
 ﻿using System.Text.Json;
 using System.Text.Json.Serialization;
 using SecureChat.Core;
+using static System.Net.Mime.MediaTypeNames;
 
 namespace SecureChat.Tabs.Chat;
 
@@ -29,7 +30,21 @@ internal class ChatPanel
             Username = _currentSession.Username,
         });
         AppendSystemMessage("Вы подключились");
-        AppendMessage(true, "Я", "Мое сообщение");
+        _tab.ExecuteScript($"appendMessage(" +
+            /*role*/$"'user', " +
+            /*text*/$"'Не подтверженное', " +
+            /*id*/$"'123', " +
+            /*status*/$"'pending', " +
+            /*senderName*/$"'Я'" +
+        $")");
+        _tab.ExecuteScript($"appendMessage(" +
+            /*role*/$"'user', " +
+            /*text*/$"'Подтверженное', " +
+            /*id*/$"'124', " +
+            /*status*/$"'sent', " +
+            /*senderName*/$"'Я'" +
+        $")");
+        AppendMessage(true, "Я", "Очень длинное сообщение. Очень длинное сообщение. Очень длинное сообщение. Очень длинное сообщение. Очень длинное сообщение. Очень длинное сообщение. Очень длинное сообщение. Очень длинное сообщение. Очень длинное сообщение. Очень длинное сообщение. Очень длинное сообщение. Очень длинное сообщение. Очень длинное сообщение. ");
         AppendMessage(false, "не Я", "Не мое сообщение");
     }
 
