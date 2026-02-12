@@ -76,3 +76,29 @@ document.getElementById("btn-settings-save").onclick = () => {
 
 // Очистка ошибок при вводе
 [roomInput, passInput].forEach(el => el.oninput = () => errorDisplay.classList.add("hidden"));
+
+
+window.toggleBtns = (state) => {
+
+    let start = document.getElementById("_startBtn");
+    let stop = document.getElementById("_stopBtn");
+    start.disabled = state
+    stop.disabled = !state
+}
+
+function onStart() {
+    postToCSharp("start", {})
+}
+
+function onStop() {
+    postToCSharp("stop", {})
+}
+
+function volumeChanged() {
+    let newVolume = parseFloat(document.getElementById('volSlider').value);
+    console.log(newVolume)
+    // Обновляем текст на странице
+    document.getElementById('val').innerText = newVolume;
+
+    postToCSharp('volumeChanged', { value: newVolume / 100 });
+}

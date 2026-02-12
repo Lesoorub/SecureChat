@@ -28,9 +28,7 @@
         /// </summary>
         private void InitializeComponent()
         {
-            components = new System.ComponentModel.Container();
             _webView = new Microsoft.Web.WebView2.WinForms.WebView2();
-            notifyIcon1 = new NotifyIcon(components);
             ((System.ComponentModel.ISupportInitialize)_webView).BeginInit();
             SuspendLayout();
             // 
@@ -45,11 +43,6 @@
             _webView.Size = new Size(639, 712);
             _webView.TabIndex = 0;
             _webView.ZoomFactor = 1D;
-            // 
-            // notifyIcon1
-            // 
-            notifyIcon1.Text = "notifyIcon1";
-            notifyIcon1.Visible = true;
             // 
             // MainForm
             // 
@@ -66,6 +59,5 @@
         #endregion
 
         private Microsoft.Web.WebView2.WinForms.WebView2 _webView;
-        private NotifyIcon notifyIcon1;
     }
 }

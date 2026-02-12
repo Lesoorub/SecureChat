@@ -7,16 +7,66 @@
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <div id="chat-container">
-        <div id="messages-container"></div>
-
-        <div class="input-area">
-            <input type="text" id="message-input" placeholder="Введите сообщение..." autofocus>
-            <button id="send-btn">
-                <svg viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"></path></svg>
-            </button>
+    <div id="app-wrapper">
+        <!-- Верхняя панель: подстраивается под контент -->
+        <div id="call-panel" class="hidden">
+            <div id="participants-list"></div>
+            <div class="call-controls">
+                <button id="mic-btn">🎤</button>
+                <button id="deafen-btn">🎧</button>
+                <button id="settings-btn">⚙️</button>
+                <button id="hangup-btn" class="danger">📞</button>
+            </div>
         </div>
+
+        <!-- Область чата: занимает всё ОСТАВШЕЕСЯ место -->
+        <main id="chat-container">
+            <div id="chat-header">
+                <button id="call-start-btn">Позвонить</button>
+            </div>
+
+            <!-- Скролл только тут -->
+            <div id="messages-container"></div>
+
+            <!-- Всегда внизу -->
+            <div class="input-area">
+                <input type="text" id="message-input" placeholder="Введите сообщение..." autofocus>
+                <button id="send-btn">
+                    <svg viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"></path></svg>
+                </button>
+            </div>
+        </main>
     </div>
+    <dialog id="settings-modal">
+        <div class="modal-content">
+            <h3>Настройки аудио</h3>
+
+            <div class="setting-item">
+                <label>Микрофон:</label>
+                <select id="mic-select">
+                    <option value="default">Системный по умолчанию</option>
+                </select>
+            </div>
+
+            <div class="setting-item">
+                <label>Динамики:</label>
+                <select id="speaker-select">
+                    <option value="default">Системный по умолчанию</option>
+                </select>
+            </div>
+
+            <div class="modal-actions">
+                <button id="close-settings" class="secondary">Закрыть</button>
+                <button id="save-settings" class="primary">Применить</button>
+            </div>
+        </div>
+    </dialog>
     <script src="index.js"></script>
+    <template id="participant-template">
+        <div class="participant">
+            <div class="avatar"></div>
+            <span class="participant-name"></span>
+        </div>
+    </template>
 </body>
 </html>

@@ -3,26 +3,25 @@
     box-sizing: border-box;
 }
 
-body, html {
+html, body {
+    height: 100%;
     margin: 0;
-    padding: 0;
-    height: 100vh;
-    width: 100vw;
-    overflow: hidden;
+    overflow: hidden; /* Запрещаем скролл всему окну */
     font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
     background-color: #ffffff;
 }
 
 #chat-container {
+    flex-grow: 1;
     display: flex;
     flex-direction: column;
-    height: 100vh;
-    width: 100vw;
+    min-height: 0; /* Важно: позволяет дочерним элементам скроллиться */
+    background: #f0f2f5;
 }
 
 /* Контейнер сообщений */
 #messages-container {
-    flex: 1;
+    flex-grow: 1;
     overflow-y: auto;
     padding: 20px;
     display: flex;
@@ -33,12 +32,10 @@ body, html {
 
 /* Обертка для сообщения и имени */
 .message-wrapper {
+    max-width: 85%;
     display: flex;
     flex-direction: column;
-    max-width: 85%;
-    gap: 4px;
 }
-
     .message-wrapper.user {
         align-self: flex-end;
     }
@@ -130,10 +127,10 @@ body, html {
 
 /* Область ввода */
 .input-area {
+    flex-shrink: 0;
+    background: #fff;
     padding: 15px;
-    background: white;
     display: flex;
-    align-items: center;
     gap: 10px;
     border-top: 1px solid #e0e0e0;
 }
@@ -190,4 +187,208 @@ button {
 /* Скрываем имя и статус для системных сообщений, если они переданы по ошибке */
 .system .sender-name, .system .status {
     display: none !important;
+}
+
+#app-wrapper {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+}
+
+#call-panel {
+    flex-shrink: 0;
+    background: #1e1e1e;
+    display: flex;
+    flex-direction: column;
+}
+
+    #call-panel.hidden {
+        display: none;
+    }
+
+#participants-list {
+    display: flex;
+    gap: 12px;
+    overflow-x: auto;
+    padding-bottom: 5px;
+}
+
+.participant {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    width: 70px; /* Фиксированная ширина для ровной сетки */
+    flex-shrink: 0; /* Запрещаем сжимать карточку участника */
+}
+
+.avatar {
+    width: 45px;
+    height: 45px;
+    border-radius: 50%;
+    background: #444;
+    border: 2px solid transparent;
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+/* Зеленая рамочка, когда участник говорит */
+.participant.speaking .avatar {
+    border-color: #2ecc71;
+    box-shadow: 0 0 10px #2ecc71;
+}
+
+.call-controls {
+    display: flex;
+    justify-content: center;
+    gap: 20px;
+    padding-bottom: 15px; /* Добавляет отступ от нижнего края */
+}
+
+    .call-controls button {
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        background: #333;
+        color: white;
+        font-size: 18px;
+    }
+
+        .call-controls button.active {
+            background: #e74c3c;
+        }
+
+        .call-controls button.danger {
+            background: #e74c3c;
+            color: white;
+        }
+
+#chat-header {
+    flex-shrink: 0;
+    padding: 10px;
+    background: #fff;
+    border-bottom: 1px solid #ddd;
+}
+
+#settings-btn {
+    background: #444; /* Чуть светлее основных кнопок */
+    transition: transform 0.3s ease;
+}
+
+    #settings-btn:hover {
+        transform: rotate(45deg);
+        background: #555;
+    }
+dialog {
+    border: none;
+    border-radius: 12px;
+    padding: 0;
+    box-shadow: 0 0 20px rgba(0,0,0,0.5);
+    width: 350px;
+    background: #fff;
+}
+
+    dialog::backdrop {
+        background: rgba(0, 0, 0, 0.6);
+        backdrop-filter: blur(2px);
+    }
+
+.modal-content {
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+.setting-item {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+    .setting-item select {
+        padding: 8px;
+        border-radius: 6px;
+        border: 1px solid #ddd;
+        background: #f9f9f9;
+    }
+
+.modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 10px;
+}
+
+    .modal-actions button {
+        padding: 8px 16px;
+        border-radius: 6px;
+        cursor: pointer;
+    }
+
+.primary {
+    background: #0078d4;
+    color: white;
+    border: none;
+}
+
+.secondary {
+    background: #eee;
+    border: 1px solid #ccc;
+}
+.avatar {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-weight: bold;
+    font-size: 16px;
+    letter-spacing: 1px;
+    border: 3px solid transparent; /* Место под рамку индикации речи */
+    transition: all 0.2s ease;
+    user-select: none;
+}
+
+/* Рамка при разговоре */
+.participant.speaking .avatar {
+    border-color: #2ecc71;
+    box-shadow: 0 0 12px rgba(46, 204, 113, 0.5);
+    transform: scale(1.05);
+}
+
+.participant-name {
+    font-size: 11px;
+    color: #eee;
+    max-width: 65px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    text-align: center;
+}
+
+/* Стили для горизонтального списка */
+#participants-list {
+    display: flex;
+    flex-wrap: wrap; /* Разрешаем перенос на новую строку */
+    justify-content: center; /* Центрируем элементы по горизонтали */
+    align-content: flex-start;
+    gap: 20px 15px; /* Отступы: 20px между строками, 15px между колонками */
+    padding: 15px;
+    max-height: 40vh; /* Ограничиваем высоту панели, чтобы она не перекрыла весь чат */
+    overflow-y: auto; /* Если строк станет слишком много, появится вертикальный скролл */
+}
+
+    #participants-list::-webkit-scrollbar {
+        display: none; /* Скрываем скроллбар в Chrome/Edge */
+    }
+.participant-name {
+    font-size: 11px;
+    color: #eee;
+    width: 100%; /* Занимает всю ширину контейнера .participant */
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis; /* Обрезает длинные имена троеточием */
+    text-align: center;
 }

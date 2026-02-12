@@ -1,5 +1,7 @@
+using System.Runtime.InteropServices;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Web.WebView2.Core;
+using NAudio.Wave;
 
 namespace SecureChat;
 
@@ -11,6 +13,9 @@ public partial class MainForm : Form
     private Task _asyncLoadTask;
     private readonly ServiceProvider _serviceProvider;
 
+    [DllImport("user32.dll")]
+    static extern bool FlashWindow(IntPtr hwnd, bool bInvert);
+
     public MainForm(ServiceProvider serviceProvider)
     {
         _serviceProvider = serviceProvider;
@@ -18,24 +23,6 @@ public partial class MainForm : Form
         InitializeComponent();
         _asyncLoadTask = Task.Run(AsyncLoad);
         _ = InitializeAsync(); // «апуск инициализации
-
-        this.ShowInTaskbar = false;
-        notifyIcon1.Click += notifyIcon1_Click;
-
-        notifyIcon1.Icon = SystemIcons.Application;
-        // задаем иконку всплывающей подсказки
-        notifyIcon1.BalloonTipIcon = ToolTipIcon.Info;
-        // задаем текст подсказки
-        notifyIcon1.BalloonTipText = "Ќажмите, чтобы отобразить окно";
-        // устанавливаем зголовк
-        notifyIcon1.BalloonTipTitle = "ѕодсказка";
-
-        notifyIcon1.ShowBalloonTip(12000);
-    }
-
-    void notifyIcon1_Click(object sender, EventArgs e)
-    {
-        this.WindowState = FormWindowState.Normal;
     }
 
     void AsyncLoad()
@@ -58,6 +45,11 @@ public partial class MainForm : Form
         {
             MessageBox.Show(ex.ToString());
         }
+    }
+
+    public void Flash()
+    {
+        FlashWindow(this.Handle, true);
     }
 
     async Task InitializeAsync()
@@ -88,7 +80,7 @@ public partial class MainForm : Form
         _webView.CoreWebView2.Settings.IsStatusBarEnabled = false;
 
         await _asyncLoadTask;
-        _webView.CoreWebView2.Navigate("https://app.localhost/main/index.html");
+        _webView.CoreWebView2.Navigate("https://app.localhost/chat/index.html");
     }
 
     private void _webView_NavigationCompleted(object? sender, CoreWebView2NavigationCompletedEventArgs e)

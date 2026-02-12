@@ -1,16 +1,14 @@
 ﻿using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using System.Windows.Forms;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Web.WebView2.WinForms;
-using Org.BouncyCastle.Asn1.Ocsp;
 using SecureChat.Core;
-using static SecureChat.Tabs.ChatTab;
+using SecureChat.Tabs.Chat;
 
 namespace SecureChat.Tabs;
 [Tab("/chat/index.html", typeof(Factory))]
-internal class ChatTab : AbstractTab
+internal partial class ChatTab : AbstractTab
 {
     public class Factory : ITabFactory
     {
@@ -23,19 +21,37 @@ internal class ChatTab : AbstractTab
     private readonly WebView2 _webView;
     private readonly CurrentSession _currentSession;
 
+    private readonly ChatPanel _chatPanel;
+    private readonly CallPanel _callPanel;
+
+    public delegate void MsgReceivedCallback(DecryptedMessage message);
+    private readonly Dictionary<string, MsgReceivedCallback> _receiveMesgCallbacks = new();
+
+    public delegate void PostMsgCallback(JsonElement message);
+    private readonly Dictionary<string, PostMsgCallback> _postMsgCallbacks = new();
+
     public ChatTab(WebView2 webView, CurrentSession currentSession)
     {
         _webView = webView;
         _currentSession = currentSession;
+        _chatPanel = new ChatPanel(this, currentSession);
+        _callPanel = new CallPanel(this, currentSession);
+    }
+
+    public void RegisterMessageReceivedCallback(string action, MsgReceivedCallback callback)
+    {
+        _receiveMesgCallbacks[action] = callback;
+    }
+
+    public void RegisterPostMsgCallback(string action, PostMsgCallback callback)
+    {
+        _postMsgCallbacks[action] = callback;
     }
 
     public override void PageLoaded()
     {
-        Send(new UserConnected
-        {
-            Username = _currentSession.Username,
-        });
-        AppendSystemMessage("Вы подключились");
+        _chatPanel.PageLoaded();
+        _callPanel.OnPageLoaded();
         Task.Run(ReceiveMessages);
     }
 
@@ -50,56 +66,19 @@ internal class ChatTab : AbstractTab
         {
             using var packet = await session.ReceiveEncodedAsync();
             var msgBase = packet.Deserialize<MessageBase>();
-            switch (msgBase.Action)
+            if (_receiveMesgCallbacks.TryGetValue(msgBase.Action, out var callback))
             {
-                case "msg":
-                    var msg = packet.Deserialize<Message>();
-                    AppendMessage(false, msg.Username, msg.Text);
-                    Send(new ConfirmMessage
-                    {
-                        MessageId = msg.MessageId,
-                    });
-                    break;
-                case "confirm_msg":
-                    var confirmMsg = packet.Deserialize<ConfirmMessage>();
-                    SetMessageState(confirmMsg.MessageId, "sent");
-                    break;
-                case "user_connected":
-                    var userConnected = packet.Deserialize<UserConnected>();
-                    AppendSystemMessage($"Пользователь \"{userConnected.Username}\" подключился");
-                    break;
+                callback?.Invoke(packet);
             }
         }
-        AppendSystemMessage("Соединение оборвано");
+        _webView.CoreWebView2.Navigate("https://app.localhost/main/index.html");
     }
 
-    private void AppendSystemMessage(string text)
+    internal void ExecuteScript(string script)
     {
         _webView.Invoke(() =>
         {
-            _webView.ExecuteScriptAsync($"appendMessage('system','{System.Web.HttpUtility.JavaScriptStringEncode(text)}')");
-        });
-    }
-
-    private void AppendMessage(bool isMe, string who, string text)
-    {
-        _webView.Invoke(() =>
-        {
-            _webView.ExecuteScriptAsync($"appendMessage(" +
-                /*role*/$"'{(isMe ? "user" : "bot")}', " +
-                /*text*/$"'{System.Web.HttpUtility.JavaScriptStringEncode(text)}', " +
-                /*id*/$"'{Environment.TickCount64}', " +
-                /*status*/$"'{(isMe ? "pending" : "sent")}', " +
-                /*senderName*/$"'{System.Web.HttpUtility.JavaScriptStringEncode(who)}'" +
-            $")");
-        });
-    }
-
-    public void SetMessageState(string msgId, string status)
-    {
-        _webView.Invoke(() =>
-        {
-            return _webView.ExecuteScriptAsync($"updateMessageStatus('{msgId}', '{status}')");
+            _webView.ExecuteScriptAsync(script);
         });
     }
 
@@ -114,18 +93,13 @@ internal class ChatTab : AbstractTab
             }
 
             var action = actionProp.GetString();
-            switch (action)
+            if (action is not null && _postMsgCallbacks.TryGetValue(action, out var callback))
             {
-                default:
-                    throw new Exception($"Unexpected action: {action}");
-
-                case "send_message":
-                    ProcessSendMessage(doc.RootElement.Deserialize<SendMessage>() ?? throw new Exception("Failed to deserialize 'send_message' message"));
-                    break;
-
-                case "get_history":
-                    ProcessGetHistory(doc.RootElement.Deserialize<GetHistory>() ?? throw new Exception("Failed to deserialize 'get_history' message"));
-                    break;
+                callback?.Invoke(doc.RootElement);
+            }
+            else
+            {
+                throw new Exception($"Unexpected action: {action}");
             }
         }
         catch (Exception ex)
@@ -134,7 +108,7 @@ internal class ChatTab : AbstractTab
         }
     }
 
-    private void Send<T>(T value)
+    internal void Send<T>(T value)
     {
         var session = _currentSession.Session;
         if (session is null || !session.IsActive)
@@ -144,79 +118,9 @@ internal class ChatTab : AbstractTab
         _ = session.SendEncodedAsync(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(value)));
     }
 
-    public class SendMessage
-    {
-        [JsonPropertyName("id")]
-        public string MessageId { get; set; } = string.Empty;
-        [JsonPropertyName("text")]
-        public string Text { get; set; } = string.Empty;
-    }
-
-    private void ProcessSendMessage(SendMessage request)
-    {
-        Send(new Message
-        {
-            MessageId = request.MessageId,
-            Username = _currentSession.Username,
-            Text = request.Text
-        });
-    }
-
-    public class GetHistory
-    {
-
-    }
-
-    private void ProcessGetHistory(GetHistory request)
-    {
-        // 1. Получаете данные из БД или сервиса
-        var history = new[] {
-            new { role = "bot", text = "История загружена" },
-            new { role = "user", text = "Отлично!" }
-        };
-
-        // 2. Отправляете каждое сообщение в JS
-        foreach (var msg in history)
-        {
-        }
-    }
-
     public class MessageBase
     {
         [JsonPropertyName("action")]
         public string Action { get; set; } = string.Empty;
-    }
-
-    public class Message
-    {
-        [JsonPropertyName("action")]
-        public string Action { get; set; } = "msg";
-
-        [JsonPropertyName("msg_id")]
-        public string MessageId { get; set; } = string.Empty;
-
-        [JsonPropertyName("username")]
-        public string Username { get; set; } = string.Empty;
-
-        [JsonPropertyName("text")]
-        public string Text { get; set; } = string.Empty;
-    }
-
-    public class ConfirmMessage
-    {
-        [JsonPropertyName("action")]
-        public string Action { get; set; } = "confirm_msg";
-
-        [JsonPropertyName("msg_id")]
-        public string MessageId { get; set; } = string.Empty;
-    }
-
-    public class UserConnected
-    {
-        [JsonPropertyName("action")]
-        public string Action { get; set; } = "user_connected";
-
-        [JsonPropertyName("username")]
-        public string Username { get; set; } = string.Empty;
     }
 }

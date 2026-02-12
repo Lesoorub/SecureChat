@@ -31,7 +31,15 @@
     <div id="chat-container" class="router-center">
         <!-- Универсальная форма входа/создания -->
         <div class="menu-card" id="auth-view">
-            <h1 class="title">Мессенджер</h1>
+            <h1 class="title">Secure Chat</h1>
+
+            <div class="container">
+                <button id="_startBtn" onclick="onStart()">Start</button>
+                <button id="_stopBtn" onclick="onStop()">Stop</button>
+                <label>Громкость микрофона: <span id="val">100</span>%</label>
+                <!-- min 0 (0.0), max 200 (2.0), step 1 для плавности -->
+                <input type="range" min="0" max="1000" value="100" id="volSlider" oninput="volumeChanged()">
+            </div>
 
             <!-- Новое поле: Имя пользователя -->
             <div class="input-group">
