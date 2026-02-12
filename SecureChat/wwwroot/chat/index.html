@@ -5,68 +5,111 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>WebView2 Chat</title>
     <link rel="stylesheet" href="style.css">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-sRIl4kxILFvY47J16cr9ZwB07vP4J8+LH7qKQnuqkuIAvNWLzeN8tE5YBujZqJLB" crossorigin="anonymous">
 </head>
 <body>
-    <div id="app-wrapper">
-        <!-- Верхняя панель: подстраивается под контент -->
-        <div id="call-panel" class="hidden">
-            <div id="participants-list"></div>
-            <div class="call-controls">
-                <button id="mic-btn">🎤</button>
-                <button id="deafen-btn">🎧</button>
-                <button id="settings-btn">⚙️</button>
-                <button id="hangup-btn" class="danger">📞</button>
+    <div id="app-wrapper" class="d-flex flex-column vh-100 overflow-hidden">
+
+        <!-- Панель звонка -->
+        <div id="call-panel" class="bg-dark text-white d-none flex-shrink-0">
+            <div id="participants-list" class="d-flex flex-wrap justify-content-center gap-3 p-3">
+                <!-- Участники будут здесь -->
+            </div>
+            <div class="call-controls d-flex justify-content-center gap-3 pb-3">
+                <button id="mic-btn" class="btn btn-outline-light rounded-circle">🎤</button>
+                <button id="deafen-btn" class="btn btn-outline-light rounded-circle">🎧</button>
+                <button id="settings-btn" class="btn btn-outline-light rounded-circle" data-bs-toggle="modal" data-bs-target="#settingsModal">⚙️</button>
+                <button id="hangup-btn" class="btn btn-danger rounded-circle">📞</button>
             </div>
         </div>
 
-        <!-- Область чата: занимает всё ОСТАВШЕЕСЯ место -->
-        <main id="chat-container">
-            <div id="chat-header">
-                <button id="call-start-btn">Позвонить</button>
+        <!-- Основной контейнер чата -->
+        <main id="chat-container" class="d-flex flex-column flex-grow-1 min-vh-0 overflow-hidden">
+
+            <!-- Шапка чата -->
+            <header id="chat-header" class="flex-shrink-0 navbar navbar-light bg-white border-bottom px-3 shadow-sm">
+                <span class="navbar-brand mb-0 h1">Чат</span>
+                <button id="call-start-btn" class="btn btn-primary btn-sm">Позвонить</button>
+            </header>
+
+            <!-- Область сообщений -->
+            <div id="messages-container" class="flex-grow-1 flex-shrink-1 overflow-y-auto p-3 d-flex flex-column gap-2 bg-white">
             </div>
 
-            <!-- Скролл только тут -->
-            <div id="messages-container"></div>
-
-            <!-- Всегда внизу -->
-            <div class="input-area">
-                <input type="text" id="message-input" placeholder="Введите сообщение..." autofocus>
-                <button id="send-btn">
-                    <svg viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"></path></svg>
-                </button>
-            </div>
+            <!-- Ввод сообщения -->
+            <footer class="input-area p-3 bg-white border-top flex-shrink-0">
+                <div class="input-group">
+                    <input type="text" id="message-input" class="form-control rounded-pill me-2" placeholder="Введите сообщение..." autofocus>
+                    <button id="send-btn" class="btn btn-primary rounded-circle d-flex align-items-center justify-content-center" style="width: 45px; height: 45px;">
+                        <svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"></path></svg>
+                    </button>
+                </div>
+            </footer>
         </main>
     </div>
-    <dialog id="settings-modal">
-        <div class="modal-content">
-            <h3>Настройки аудио</h3>
 
-            <div class="setting-item">
-                <label>Микрофон:</label>
-                <select id="mic-select">
-                    <option value="default">Системный по умолчанию</option>
-                </select>
-            </div>
-
-            <div class="setting-item">
-                <label>Динамики:</label>
-                <select id="speaker-select">
-                    <option value="default">Системный по умолчанию</option>
-                </select>
-            </div>
-
-            <div class="modal-actions">
-                <button id="close-settings" class="secondary">Закрыть</button>
-                <button id="save-settings" class="primary">Применить</button>
+    <!-- Настройки (Bootstrap Modal) -->
+    <div class="modal fade" id="settingsModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Настройки аудио</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">Микрофон:</label>
+                        <select id="mic-select" class="form-select">
+                            <option value="default">Системный по умолчанию</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Динамики:</label>
+                        <select id="speaker-select" class="form-select">
+                            <option value="default">Системный по умолчанию</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button id="close-settings" class="btn btn-secondary hidden" data-bs-dismiss="modal">Закрыть</button>
+                    <button id="save-settings" class="btn btn-primary">Применить</button>
+                </div>
             </div>
         </div>
-    </dialog>
-    <script src="index.js"></script>
+    </div>
+
+    <!-- Темплейт участника -->
     <template id="participant-template">
-        <div class="participant">
-            <div class="avatar"></div>
-            <span class="participant-name"></span>
+        <div class="participant d-flex flex-column align-items-center" style="width: 80px;">
+            <div class="avatar bg-secondary rounded-circle d-flex align-items-center justify-content-center text-white mb-1" style="width: 48px; height: 48px; font-weight: bold; border: 3px solid transparent;"></div>
+            <span class="participant-name small text-truncate w-100 text-center text-light"></span>
         </div>
     </template>
+
+    <!-- Шаблон сообщения -->
+    <template id="message-template">
+        <div class="message-wrapper d-flex flex-column mb-3 w-100">
+            <small class="sender-name text-muted mb-1 mx-2"></small>
+            <div class="message p-2 px-3 shadow-sm border rounded-4" style="max-width: 85%;">
+                <!-- Используем div для корректной работы justify -->
+                <div class="text-content"></div>
+                <span class="status ms-2 opacity-50 small float-end"></span>
+            </div>
+        </div>
+    </template>
+
+    <!-- Шаблон участника (обновленный под Bootstrap) -->
+    <template id="participant-template">
+        <div class="participant d-flex flex-column align-items-center" style="width: 80px;">
+            <div class="avatar rounded-circle d-flex align-items-center justify-content-center text-white mb-1 shadow-sm"
+                 style="width: 48px; height: 48px; font-weight: bold; border: 3px solid transparent; transition: 0.3s;">
+            </div>
+            <span class="participant-name small text-truncate w-100 text-center text-light"></span>
+        </div>
+    </template>
+
+    <!-- JS Bootstrap -->
+    <script src="index.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js" integrity="sha384-FKyoEForCGlyvwx9Hj09JcYn3nv7wiPVlz7YYwJrWVcXK/BmnVDxM+D2scQbITxI" crossorigin="anonymous"></script>
 </body>
 </html>

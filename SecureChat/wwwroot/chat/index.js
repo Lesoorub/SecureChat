@@ -6,6 +6,8 @@ const callStartBtn = document.getElementById('call-start-btn');
 const settingsModal = document.getElementById('settings-modal');
 const micSelect = document.getElementById('mic-select');
 const speakerSelect = document.getElementById('speaker-select');
+
+
 function postToCSharp(action, data = {}) {
     if (window.chrome && window.chrome.webview) {
         window.chrome.webview.postMessage({ action, ...data });
@@ -13,39 +15,42 @@ function postToCSharp(action, data = {}) {
 }
 
 window.appendMessage = (role, text, id = null, status = 'sent', senderName = 'Бот') => {
-    const msgId = id || 'msg_' + Date.now();
+    const template = document.getElementById('message-template');
+    const fragment = template.content.cloneNode(true);
 
-    // Создаем обертку
-    const wrapper = document.createElement('div');
-    wrapper.className = `message-wrapper ${role}`;
+    const wrapper = fragment.querySelector('.message-wrapper');
+    const msgDiv = fragment.querySelector('.message');
+    const textSpan = fragment.querySelector('.text-content');
+    const nameDiv = fragment.querySelector('.sender-name');
+    const statusSpan = fragment.querySelector('.status');
 
-    // Добавляем имя, если это чужое сообщение
-    if (role === 'bot') {
-        const nameDiv = document.createElement('div');
-        nameDiv.className = 'sender-name';
+    msgDiv.id = id || 'msg_' + Date.now();
+    textSpan.textContent = text;
+
+    if (role === 'system') {
+        // Системное: по центру, жирное, без оформления
+        wrapper.classList.add('align-items-center');
+        msgDiv.classList.add('fw-bold', 'text-muted', 'small', 'text-center');
+        nameDiv.remove();
+        statusSpan.remove();
+    } else if (role === 'user') {
+        // Пользователь: справа, синий фон, тень
+        wrapper.classList.add('align-items-end');
+        msgDiv.classList.add('bg-primary', 'text-white', 'rounded-4', 'rounded-bottom-end-0', 'shadow-sm', 'border');
+        statusSpan.textContent = status === 'pending' ? '...' : (status === 'sent' ? '✓' : '!');
+        nameDiv.remove();
+    } else {
+        // Бот: слева, светлый фон, тень
+        wrapper.classList.add('align-items-start');
+        msgDiv.classList.add('bg-light', 'text-dark', 'rounded-4', 'rounded-bottom-start-0', 'shadow-sm', 'border');
         nameDiv.textContent = senderName;
-        wrapper.appendChild(nameDiv);
+        statusSpan.remove();
     }
 
-    // Создаем само сообщение
-    const msgDiv = document.createElement('div');
-    msgDiv.className = 'message';
-    msgDiv.id = msgId;
-
-    const textNode = document.createTextNode(text);
-    msgDiv.appendChild(textNode);
-
-    // Добавляем статус только пользователю
-    if (role === 'user') {
-        const statusSpan = document.createElement('span');
-        statusSpan.className = `status ${status}`;
-        msgDiv.appendChild(statusSpan);
-    }
-
-    wrapper.appendChild(msgDiv);
-    messagesContainer.appendChild(wrapper);
+    messagesContainer.appendChild(fragment);
     messagesContainer.scrollTo({ top: messagesContainer.scrollHeight, behavior: 'smooth' });
 };
+
 
 // Вызов из C#: updateMessageStatus('msg_123', 'sent') или 'error'
 window.updateMessageStatus = (id, status) => {
@@ -53,7 +58,7 @@ window.updateMessageStatus = (id, status) => {
     if (msg) {
         const statusSpan = msg.querySelector('.status');
         if (statusSpan) {
-            statusSpan.className = `status ${status}`;
+            statusSpan.textContent = status === 'pending' ? '...' : (status === 'sent' ? '✓' : '!');
         }
     }
 };
@@ -115,28 +120,32 @@ window.updateParticipants = (participants) => {
     list.innerHTML = '';
 
     participants.forEach(p => {
-        // Клонируем содержимое шаблона
         const fragment = template.content.cloneNode(true);
         const container = fragment.querySelector('.participant');
         const avatar = fragment.querySelector('.avatar');
         const nameLabel = fragment.querySelector('.participant-name');
 
-        // Настройка контейнера и ID
         container.id = `user-${p.id}`;
         if (p.isSpeaking) container.classList.add('speaking');
 
-        // Генерация визуалов
+        // Генерируем цвет и инициалы
         const bgColor = stringToColor(p.name);
         const initials = getInitials(p.name);
 
-        // Заполнение данными
+        // ВАЖНО: Удаляем стандартный серый класс Bootstrap, чтобы работал inline-style
+        avatar.classList.remove('bg-secondary');
+
+        // Устанавливаем цвет фона и текст
         avatar.style.backgroundColor = bgColor;
+        avatar.style.color = '#fff'; // Всегда белый текст для контраста
         avatar.textContent = initials;
+
         nameLabel.textContent = p.name;
 
         list.appendChild(fragment);
     });
 };
+
 
 // Вызов из C# для индикации речи: setSpeaking('user_1', true)
 window.setSpeaking = (userId, isSpeaking) => {
@@ -148,7 +157,7 @@ window.setSpeaking = (userId, isSpeaking) => {
 
 // Обработка кнопок управления
 document.getElementById('mic-btn').onclick = function () {
-    this.classList.toggle('active');
+    //this.classList.toggle('active');
     postToCSharp('toggle_mic', { active: !this.classList.contains('active') });
 };
 
@@ -159,12 +168,13 @@ document.getElementById('hangup-btn').onclick = () => {
 
 // Открытие модалки
 document.getElementById('settings-btn').onclick = () => {
-    postToCSharp('get_audio_devices'); // Запрашиваем список устройств у C#
-    settingsModal.showModal();
+    postToCSharp('get_audio_devices');
+    // Вместо settingsModal.showModal() используем:
+    bsSettingsModal.show();
 };
 
 // Закрытие
-document.getElementById('close-settings').onclick = () => settingsModal.close();
+document.getElementById('close-settings').onclick = () => bsSettingsModal.hide();
 
 // Применение настроек
 document.getElementById('save-settings').onclick = () => {
@@ -172,7 +182,11 @@ document.getElementById('save-settings').onclick = () => {
         micId: micSelect.value,
         speakerId: speakerSelect.value
     });
-    settingsModal.close();
+
+    // Получаем экземпляр модалки Bootstrap и закрываем её
+    const modalElement = document.getElementById('settingsModal');
+    const modalInstance = bootstrap.Modal.getOrCreateInstance(modalElement);
+    modalInstance.hide();
 };
 
 // Функция для C#, чтобы заполнить списки устройств
@@ -186,17 +200,20 @@ window.fillAudioDevices = (mics, speakers) => {
 
 const toggleCallUI = (show) => {
     if (show) {
-        callPanel.classList.remove('hidden');
+        // Удаляем d-none (Bootstrap) и скрытый (если был)
+        callPanel.classList.remove('d-none', 'hidden');
     } else {
-        callPanel.classList.add('hidden');
+        // Добавляем стандартный класс скрытия Bootstrap
+        callPanel.classList.add('d-none');
     }
-    // Даем браузеру время пересчитать высоты, затем скроллим чат
+
+    // Прокрутка чата после изменения высоты интерфейса
     setTimeout(() => {
         messagesContainer.scrollTo({
             top: messagesContainer.scrollHeight,
             behavior: 'smooth'
         });
-    }, 100);
+    }, 150);
 };
 
 sendBtn.onclick = handleSend;

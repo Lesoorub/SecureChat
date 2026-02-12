@@ -1,333 +1,93 @@
-﻿/* 1. Переменные */
-:root {
-    --primary-color: #0078d4;
-    --bg-main: #f0f2f5;
-    --bg-card: #ffffff;
-    --text-main: #050505;
-    --text-muted: #65676b;
-    --border-color: #ddd;
-    --radius-msg: 18px;
-}
-
-/* 2. Базовые сбросы */
-* {
-    box-sizing: border-box;
-}
-
+﻿/* Стили для структуры приложения */
 body, html {
     height: 100%;
     margin: 0;
     overflow: hidden;
-    font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
 }
 
-/* 3. Лейаут */
-#app-wrapper {
-    display: flex;
-    flex-direction: column;
-    height: 100vh;
+/* Скроллбар для области сообщений */
+#messages-container::-webkit-scrollbar {
+    width: 6px;
 }
 
-#chat-container {
-    flex-grow: 1;
-    display: flex;
-    flex-direction: column;
-    min-height: 0;
-    background: var(--bg-main);
+#messages-container::-webkit-scrollbar-thumb {
+    background-color: #00000020;
+    border-radius: 10px;
 }
 
-#chat-header {
-    background: var(--bg-card);
-    padding: 10px;
-    border-bottom: 1px solid var(--border-color);
-    flex-shrink: 0;
+/* Стили сообщений */
+.message-wrapper.user {
+    align-self: flex-end;
+    align-items: flex-end !important;
 }
 
-/* 4. Чат и сообщения */
-#messages-container {
-    flex-grow: 1;
-    overflow-y: auto;
-    padding: 20px;
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-}
-
-.message-wrapper {
-    display: flex;
-    flex-direction: column;
-}
-
-    .message-wrapper.user {
-        align-self: flex-end;
-    }
-
-    .message-wrapper.bot {
-        align-self: flex-start;
-    }
-
-.message {
-    position: relative; /* Важно для абсолютного позиционирования статуса внутри */
-    padding: 10px 16px;
-    border-radius: var(--radius-msg);
-    font-size: 15px;
-    line-height: 1.4;
-    word-wrap: break-word;
-    text-align: justify;
-}
-
-/* 2. Восстанавливаем стили индикаторов статуса */
-.status {
-    position: relative;
-    display: inline-block;
-    width: 10px;
-    height: 10px;
-    margin-left: 8px;
-    vertical-align: middle;
-}
-
-    /* Галочка (Отправлено) */
-    .status.sent::after {
-        content: "✓";
-        font-size: 11px;
-        position: absolute;
-        top: -7px;
-        left: 0;
-    }
-
-    /* Крутилка (Ожидание) */
-    .status.pending {
-        border: 2px solid rgba(255, 255, 255, 0.3);
-        border-top: 2px solid #fff;
-        border-radius: 50%;
-        animation: spin .8s linear infinite;
-    }
-
-    /* Ошибка */
-    .status.error::after {
-        content: "!";
-        font-size: 12px;
-        font-weight: 700;
-        color: #ffbaba;
-        position: absolute;
-        top: -7px;
-        left: 3px;
-    }
-
-@keyframes spin {
-    from {
-        transform: rotate(0);
-    }
-
-    to {
-        transform: rotate(360deg);
-    }
-}
-
-@keyframes pulse-loading {
-    0% {
-        opacity: 1;
-    }
-
-    50% {
-        opacity: 0.6;
-    }
-
-    100% {
-        opacity: 1;
-    }
-}
-
-/* Имя отправителя */
-.sender-name {
-    font-size: 12px;
-    color: var(--text-muted);
-    margin: 0 8px 2px;
+.message-wrapper.system .message {
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
 }
 
 .user .message {
-    background: var(--primary-color);
-    color: #fff;
-    border-bottom-right-radius: 4px;
+    background-color: #0078d4 !important;
+    color: white !important;
+    border-bottom-right-radius: 4px !important;
 }
 
 .bot .message {
-    background: #e4e6eb;
-    color: var(--text-main);
-    border-bottom-left-radius: 4px;
+    border-bottom-left-radius: 4px !important;
 }
 
-/* 5. Участники и Аватары */
-.participant {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 8px;
-    width: 70px;
-    flex-shrink: 0;
-}
-
-.avatar {
-    width: 48px;
-    height: 48px;
-    border-radius: 50%;
-    background: #444;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: #fff;
-    font-weight: 700;
-    font-size: 16px;
-    border: 3px solid transparent;
-    transition: .2s;
-}
-
+/* Анимация говорящего участника */
 .participant.speaking .avatar {
-    border-color: #2ecc71;
-    box-shadow: 0 0 12px rgba(46,204,113,.5);
+    border-color: #2ecc71 !important;
+    box-shadow: 0 0 12px rgba(46,204,113,0.5);
     transform: scale(1.05);
+    transition: 0.2s;
 }
 
-.participant-name {
-    font-size: 11px;
-    color: #eee;
-    width: 100%;
-    text-align: center;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+/* Утилитарный класс для скрытия (если не используется d-none от Bootstrap) */
+.hidden {
+    display: none !important;
 }
 
-/* 6. Поле ввода и Кнопки */
-.input-area {
-    padding: 15px;
-    display: flex;
-    gap: 10px;
-    border-top: 1px solid #e0e0e0;
-    background: var(--bg-card);
-    flex-shrink: 0;
-}
-
-input {
-    flex: 1;
-    padding: 12px 18px;
-    border-radius: 24px;
-    border: 1px solid var(--border-color);
-    background: var(--bg-main);
-    outline: 0;
-    font-size: 15px;
-}
-
-button {
-    background: none;
-    border: none;
-    color: var(--primary-color);
-    cursor: pointer;
-    transition: transform .1s;
-}
-
-    button:active {
-        transform: scale(.9);
-    }
-
-.call-controls {
-    display: flex;
-    justify-content: center;
-    align-items: center; /* Центрирование по вертикали */
-    gap: 20px;
-    padding: 0 0 20px;
-}
-
-/* Кнопки в панели вызова */
+/* Кнопки управления вызовом */
 .call-controls button {
-    width: 40px;
-    height: 40px;
-    border-radius: 50%;
-    background: #333;
-    color: #fff;
-    display: inline-flex;
+    width: 45px;
+    height: 45px;
+    display: flex;
     align-items: center;
     justify-content: center;
 }
-
-    .call-controls button.danger {
-        background: #e74c3c;
-    }
-
-/* 7. Панель вызова и модалка */
-#call-panel {
-    background: #1e1e1e;
-    flex-shrink: 0;
+/* Стили для индикации речи в Bootstrap-версии */
+.participant.speaking .avatar {
+    border-color: #2ecc71 !important;
+    box-shadow: 0 0 15px rgba(46, 204, 113, 0.7);
+    transform: scale(1.1);
 }
 
-    #call-panel.hidden {
-        display: none;
-    }
-
-#participants-list {
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: center;
-    gap: 20px 15px;
-    padding: 15px;
-    max-height: 40vh;
-    overflow-y: auto;
+/* Скругление углов для сообщений (Bootstrap custom) */
+.rounded-bottom-end-0 {
+    border-bottom-right-radius: 0 !important;
 }
 
-
-dialog {
-    border: none;
-    border-radius: 12px;
-    padding: 0;
-    box-shadow: 0 0 20px rgba(0,0,0,0.5);
-    width: 350px;
-    background: #fff;
+.rounded-bottom-start-0 {
+    border-bottom-left-radius: 0 !important;
+}
+#messages-container {
+    /* Глобально меняем выравнивание для всей области сообщений */
+    --bs-body-text-align: justify;
 }
 
-    dialog::backdrop {
-        background: rgba(0, 0, 0, 0.6);
-        backdrop-filter: blur(2px);
-    }
-
-.modal-content {
-    padding: 20px;
-    display: flex;
-    flex-direction: column;
-    gap: 15px;
+.text-content {
+    /* Применяем переменную к контенту */
+    text-align: var(--bs-body-text-align);
+    /* Добавляем эти свойства, чтобы justify не создавал огромных дыр между словами */
+    text-justify: inter-word;
+    word-break: break-word;
+    hyphens: auto;
 }
 
-.setting-item {
-    display: flex;
-    flex-direction: column;
-    gap: 5px;
-}
-
-    .setting-item select {
-        padding: 8px;
-        border-radius: 6px;
-        border: 1px solid #ddd;
-        background: #f9f9f9;
-    }
-
-.modal-actions {
-    display: flex;
-    justify-content: flex-end;
-    gap: 10px;
-    margin-top: 10px;
-}
-
-    .modal-actions button {
-        padding: 8px 16px;
-        border-radius: 6px;
-        cursor: pointer;
-    }
-.primary {
-    background: #0078d4;
-    color: white;
-    border: none;
-}
-
-.secondary {
-    background: #eee;
-    border: 1px solid #ccc;
+/* Исключение для системных сообщений, чтобы они оставались по центру */
+.message-wrapper.system .text-content {
+    text-align: center !important;
 }
