@@ -56,7 +56,7 @@ window.api = {
         btnJoin.textContent = "Войти в чат";
     },
     processSuccess: () => {
-        window.location.href = "https://app.localhost/chat/index.html";
+        window.location.href = "https://app.localhost/pages/chat/index.html";
     },
     initSettings: (url) => {
         serverInput.value = url;

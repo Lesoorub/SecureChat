@@ -1,9 +1,10 @@
-﻿using System.Text.Json;
-using System.Text.Json.Serialization;
+﻿using System.Text.Json.Serialization;
+using Org.BouncyCastle.Tls;
 using SecureChat.Core;
-using static System.Net.Mime.MediaTypeNames;
+using SecureChat.Core.Attributes;
+using static System.Windows.Forms.VisualStyles.VisualStyleElement;
 
-namespace SecureChat.Tabs.Chat;
+namespace SecureChat.Features.Chat.Components;
 
 internal class ChatPanel
 {
@@ -18,9 +19,6 @@ internal class ChatPanel
         tab.RegisterNetCallback<Message>("msg", Process);
         tab.RegisterNetCallback<ConfirmMessage>("confirm_msg", Process);
         tab.RegisterNetCallback<UserConnected>("user_connected", Process);
-
-        tab.RegisterUiCallback<SendMessage>("send_message", Process);
-        tab.RegisterUiCallback<GetHistory>("get_history", Process);
     }
 
     public void PageLoaded()
@@ -30,45 +28,52 @@ internal class ChatPanel
             Username = _currentSession.Username,
         });
         AppendSystemMessage("Вы подключились");
-        _tab.ExecuteScript($"appendMessage(" +
-            /*role*/$"'user', " +
-            /*text*/$"'Не подтверженное', " +
-            /*id*/$"'123', " +
-            /*status*/$"'pending', " +
-            /*senderName*/$"'Я'" +
-        $")");
-        _tab.ExecuteScript($"appendMessage(" +
-            /*role*/$"'user', " +
-            /*text*/$"'Подтверженное', " +
-            /*id*/$"'124', " +
-            /*status*/$"'sent', " +
-            /*senderName*/$"'Я'" +
-        $")");
-        _tab.ExecuteScript($"appendMessage(" +
-            /*role*/$"'user', " +
-            /*text*/$"'Ошибка', " +
-            /*id*/$"'124', " +
-            /*status*/$"'error', " +
-            /*senderName*/$"'Я'" +
-        $")");
+        AppendMessage(
+            role: "user",
+            text: "Не подтверженное",
+            id: "123",
+            status: "pending",
+            senderName: "Я"
+        );
+        AppendMessage(
+            role: $"user",
+            text: $"Подтверженное",
+            id: $"124",
+            status: $"sent",
+            senderName: $"Я"
+        );
+        AppendMessage(
+            role: "user",
+            text: "Ошибка",
+            id: "124",
+            status: "error",
+            senderName: "Я"
+        );
         AppendMessage(true, "Я", "Очень длинное сообщение. Очень длинное сообщение. Очень длинное сообщение. Очень длинное сообщение. Очень длинное сообщение. Очень длинное сообщение. Очень длинное сообщение. Очень длинное сообщение. Очень длинное сообщение. Очень длинное сообщение. Очень длинное сообщение. Очень длинное сообщение. Очень длинное сообщение. ");
         AppendMessage(false, "не Я", "Не мое сообщение");
     }
 
     internal void AppendSystemMessage(string text)
     {
-        _tab.ExecuteScript($"appendMessage('system','{System.Web.HttpUtility.JavaScriptStringEncode(text)}')");
+        AppendMessage("system", text, string.Empty, string.Empty, string.Empty);
     }
 
     internal void AppendMessage(bool isMe, string who, string text)
     {
-        _tab.ExecuteScript($"appendMessage(" +
-            /*role*/$"'{(isMe ? "user" : "bot")}', " +
-            /*text*/$"'{System.Web.HttpUtility.JavaScriptStringEncode(text)}', " +
-            /*id*/$"'{Environment.TickCount64}', " +
-            /*status*/$"'{(isMe ? "pending" : "sent")}', " +
-            /*senderName*/$"'{System.Web.HttpUtility.JavaScriptStringEncode(who)}'" +
-        $")");
+        AppendMessage(isMe ? "user" : "bot", text, Environment.TickCount64.ToString(), isMe ? "pending" : "sent", who);
+    }
+
+    internal void AppendMessage(string role, string text, string id, string status, string senderName)
+    {
+        _tab.PostMessage(new
+        {
+            action = "append_message",
+            role = role,
+            text = text,
+            id = id,
+            status = status,
+            senderName = senderName
+        });
     }
 
     public void SetMessageState(string msgId, string status)
@@ -84,7 +89,8 @@ internal class ChatPanel
         public string Text { get; set; } = string.Empty;
     }
 
-    private void Process(SendMessage request)
+    [JsAction("send_message")]
+    internal void Process(SendMessage request)
     {
         _tab.Send(new Message
         {
@@ -99,7 +105,8 @@ internal class ChatPanel
 
     }
 
-    private void Process(GetHistory _)
+    [JsAction("get_history")]
+    internal void Process(GetHistory _)
     {
         // 1. Получаете данные из БД или сервиса
         var history = new[] {

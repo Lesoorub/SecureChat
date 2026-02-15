@@ -1,15 +1,11 @@
-﻿using System.Buffers;
-using System.IO;
-using System.Net;
+﻿using System.Net;
 using System.Net.Http;
 using System.Net.Http.Json;
 using System.Net.WebSockets;
-using System.Security.Cryptography;
 using System.Text;
-using System.Text.Json;
 using System.Text.Json.Serialization;
 using Konscious.Security.Cryptography;
-using Org.BouncyCastle.Crypto;
+using SecureChat.Core.Attributes;
 using SecureRemotePassword;
 using SRP.Extra;
 

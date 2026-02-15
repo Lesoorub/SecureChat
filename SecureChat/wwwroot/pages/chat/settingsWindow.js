@@ -15,25 +15,28 @@ function postToCSharp(action, data = {}) {
     }
 }
 
-// Открытие модалки
-document.getElementById('settings-btn').onclick = () => {
-    postToCSharp('open_settings');
-    // Вместо settingsModal.showModal() используем:
-    bsSettingsModal.show();
-};
+// Слушаем ответ от C#
+window.chrome.webview.addEventListener('message', event => {
+    const data = event.data;
 
-// Закрытие
-document.getElementById('close-settings').onclick = () => bsSettingsModal.hide();
+    switch (data.action) {
+        case "fill_audio_devices":
+            fillAudioDevices(data.mics, data.speakers);
+            break;
+    }
+});
 
-// Применение настроек
-document.getElementById('save-settings').onclick = () => {
+document.getElementById('close-settings').onclick = applySettingsAndClose;
+document.getElementById('save-settings').onclick = applySettingsAndClose;
+
+function applySettingsAndClose() {
     postToCSharp('apply_settings', {
         micId: micSelect.value,
         speakerId: speakerSelect.value,
-        volume: volRange.value,
-        micGain: gainRange.value,
+        volume: parseFloat(volRange.value),
+        micGain: parseFloat(gainRange.value),
         activation: activationType.value,
-        threshold: thresholdRange.value,
+        threshold: parseInt(thresholdRange.value),
         pttKey: pttInput.value
     });
 
@@ -41,16 +44,16 @@ document.getElementById('save-settings').onclick = () => {
     const modalElement = document.getElementById('settingsModal');
     const modalInstance = bootstrap.Modal.getOrCreateInstance(modalElement);
     modalInstance.hide();
-};
+}
 
 // Функция для C#, чтобы заполнить списки устройств
-window.fillAudioDevices = (mics, speakers) => {
+function fillAudioDevices(mics, speakers) {
     const fill = (select, items) => {
         select.innerHTML = items.map(i => `<option value="${i.id}">${i.name}</option>`).join('');
     };
     fill(micSelect, mics);
     fill(speakerSelect, speakers);
-};
+}
 
 // Логика переключения типов активации
 activationType.onchange = () => {

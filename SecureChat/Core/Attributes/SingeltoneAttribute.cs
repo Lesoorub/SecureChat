@@ -1,4 +1,4 @@
-﻿namespace SecureChat;
+﻿namespace SecureChat.Core.Attributes;
 
 [AttributeUsage(AttributeTargets.Class, Inherited = false, AllowMultiple = false)]
 internal sealed class SingeltoneAttribute : Attribute

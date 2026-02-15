@@ -1,15 +1,13 @@
 ﻿using System.Buffers;
 using System.IO;
 using System.Net.WebSockets;
-using System.Threading.Channels;
-using Org.BouncyCastle.Crypto.Utilities;
 
 namespace SecureChat.Core;
 
 public class WebSocketClient : IDisposable
 {
     private ClientWebSocket? _client;
-    private readonly Uri _uri; 
+    private readonly Uri _uri;
     private readonly SemaphoreSlim _sendLock = new(1, 1);
 
     public TimeSpan ReconnectDelay = TimeSpan.FromSeconds(5);
@@ -155,7 +153,7 @@ public class WebSocketClient : IDisposable
                             WebSocketMessageType.Close,
                             ArraySegment<byte>.Empty,
                             true
-                        ), 
+                        ),
                         ct
                     );
                     return (WebSocketCloseStatus.InternalServerError, ex.Message);

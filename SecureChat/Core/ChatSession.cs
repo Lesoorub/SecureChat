@@ -130,7 +130,7 @@ public class ChatSession : IDisposable
             _sendLock.Release();
         }
     }
-    
+
     public async Task SendAsync(RecyclableMemoryStream stream, bool endOfMessage = true)
     {
         if (_ws.State != WebSocketState.Open) return;

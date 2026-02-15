@@ -1,59 +1,39 @@
-using System.Runtime.InteropServices;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Web.WebView2.Core;
+using SecureChat.Core.Attributes;
+using SecureChat.Infrastructure.WebView;
+using SecureChat.UI.Base;
 
 namespace SecureChat;
 
 public partial class MainForm : Form
 {
-    private AbstractTab? _currentTab;
+    private AbstractPage? _currentPage;
 
     private string? _initPageAddress;
-    private readonly Dictionary<string, ITabFactory> _tabFactories = new();
-    private Task _asyncLoadTask;
+    private readonly Dictionary<string, Type> _routeMap = new();
     private readonly ServiceProvider _serviceProvider;
-
-    [DllImport("user32.dll")]
-    static extern bool FlashWindow(IntPtr hwnd, bool bInvert);
 
     public MainForm(ServiceProvider serviceProvider)
     {
         _serviceProvider = serviceProvider;
 
         InitializeComponent();
-        _asyncLoadTask = Task.Run(AsyncLoad);
-        _ = InitializeAsync(); // Запуск инициализации
-    }
-
-    void AsyncLoad()
-    {
-        try
+        _webView.DefaultBackgroundColor = Color.Transparent;
+        if (this.DesignMode)
         {
-            foreach (var (type, attr) in TabAttribute.GetTypesWithThisAttribute())
+            return;
+        }
+
+        foreach (var (type, attr) in PageAttribute.GetTypesWithThisAttribute())
+        {
+            if (attr.InitPage)
             {
-                if (attr.InitPage)
-                {
-                    _initPageAddress = attr.Address;
-                }
-                var factory = (ITabFactory?)Activator.CreateInstance(attr.FactoryType);
-                if (factory is null)
-                {
-                    MessageBox.Show($"Не удалось загрузить страницу: '{attr.Address}'");
-                    Environment.Exit(0);
-                    return;
-                }
-                _tabFactories[attr.Address] = factory;
+                _initPageAddress = attr.Address;
             }
+            _routeMap[attr.Address] = type;
         }
-        catch (Exception ex)
-        {
-            MessageBox.Show(ex.ToString());
-        }
-    }
-
-    public void Flash()
-    {
-        FlashWindow(this.Handle, true);
+        _ = InitializeAsync(); // Запуск инициализации
     }
 
     async Task InitializeAsync()
@@ -83,33 +63,35 @@ public partial class MainForm : Form
 
         _webView.CoreWebView2.Settings.IsStatusBarEnabled = false;
 
-        await _asyncLoadTask;
         _webView.CoreWebView2.Navigate("https://app.localhost" + _initPageAddress);
     }
 
     private void _webView_NavigationCompleted(object? sender, CoreWebView2NavigationCompletedEventArgs e)
     {
-        _currentTab?.PageLoaded();
+        _currentPage?.PageLoaded();
     }
 
     private void _webView_NavigationStarting(object? sender, CoreWebView2NavigationStartingEventArgs e)
     {
-        (_currentTab as IDisposable)?.Dispose();
+        (_currentPage as IDisposable)?.Dispose();
 
         var uri = new Uri(e.Uri);
-
-        if (_tabFactories.TryGetValue(uri.AbsolutePath, out var factory))
+        if (_routeMap.TryGetValue(uri.AbsolutePath, out var pageType))
         {
-            _currentTab = factory.Create(_webView, _serviceProvider);
+            _currentPage = (AbstractPage)ActivatorUtilities.CreateInstance(
+                _serviceProvider,
+                pageType,
+                new WebViewWrapper(_webView)
+            );
         }
         else
         {
-            _currentTab = null;
+            _currentPage = null;
         }
     }
 
     private void _webView_WebMessageReceived(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
     {
-        _currentTab?.ProcessPostMessage(e.WebMessageAsJson);
+        _currentPage?.ProcessPostMessage(e.WebMessageAsJson);
     }
 }

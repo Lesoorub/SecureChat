@@ -4,14 +4,32 @@ const sendBtn = document.getElementById('send-btn');
 const callPanel = document.getElementById('call-panel');
 const callStartBtn = document.getElementById('call-start-btn');
 const micBtn = document.getElementById('mic-btn');
+const settingsBtn = document.getElementById('settings-btn');
+const hangupBtn = document.getElementById('hangup-btn');
 
 function postToCSharp(action, data = {}) {
     if (window.chrome && window.chrome.webview) {
         window.chrome.webview.postMessage({ action, ...data });
     }
 }
+const actions = {
+    set_mic_state: d => setMicState(d.value),
+    update_participants: d => updateParticipants(d.participants),
+    set_speaking: d => setSpeaking(d.userId, d.isSpeaking),
+    set_users_speaking: d => setUsersSpeaking(d.states),
+    append_message: d => appendMessage(d.role, d.text, d.id, d.status, d.senderName),
+    update_message_status: d => updateMessageStatus(d.id, d.status)
+};
 
-window.appendMessage = (role, text, id = null, status = 'sent', senderName = 'Бот') => {
+// Слушаем ответ от C#
+window.chrome.webview.addEventListener('message', event => {
+    const data = event.data;
+
+    actions[data.action]?.(data);
+});
+
+function appendMessage(role, text, id = null, status = 'sent', senderName = 'Бот')
+{
     const template = document.getElementById('message-template');
     const fragment = template.content.cloneNode(true);
 
@@ -52,9 +70,10 @@ window.appendMessage = (role, text, id = null, status = 'sent', senderName = 'Б
 
     messagesContainer.appendChild(fragment);
     messagesContainer.scrollTo({ top: messagesContainer.scrollHeight, behavior: 'smooth' });
-};
+}
 
-window.updateMessageStatus = (id, status) => {
+function updateMessageStatus(id, status)
+{
     const msg = document.getElementById(id);
     if (!msg) return;
 
@@ -69,9 +88,9 @@ window.updateMessageStatus = (id, status) => {
     }
     // Если status === 'sent', мы просто оставили классы пустыми, 
     // и Bootstrap вернет стандартный bg-primary
-};
+}
 
-function handleSend() {
+sendBtn.onclick = function () {
     const text = messageInput.value.trim();
     if (text) {
         const tempId = 'msg_' + Date.now();
@@ -85,7 +104,22 @@ function handleSend() {
 
         messageInput.value = '';
     }
-}
+};
+
+// Обработка кнопок управления
+micBtn.onclick = function () {
+    postToCSharp('toggle_mic', { active: !this.classList.contains('active') });
+};
+
+hangupBtn.onclick = () => {
+    toggleCallUI(false);
+    postToCSharp('leave_call');
+};
+
+// Открытие модалки
+settingsBtn.onclick = () => {
+    postToCSharp('open_settings');
+};
 
 // Начать звонок (показать панель)
 callStartBtn.onclick = () => {
@@ -120,7 +154,8 @@ function getInitials(name) {
         .substring(0, 2);
 }
 
-window.updateParticipants = (participants) => {
+function updateParticipants(participants)
+{
     const list = document.getElementById('participants-list');
     const template = document.getElementById('participant-template');
 
@@ -151,37 +186,29 @@ window.updateParticipants = (participants) => {
 
         list.appendChild(fragment);
     });
-};
+}
 
-
-// Вызов из C# для индикации речи: setSpeaking('user_1', true)
-window.setSpeaking = (userId, isSpeaking) => {
+// Вызов для индикации речи: setSpeaking('user_1', true)
+function setSpeaking(userId, isSpeaking)
+{
     const el = document.getElementById(`user-${userId}`);
     if (el) {
         isSpeaking ? el.classList.add('speaking') : el.classList.remove('speaking');
     }
-};
+}
 
-window.setUsersSpeaking = (states) => {
+function setUsersSpeaking(states)
+{
     Object.entries(states).forEach(([userId, isSpeaking]) => {
         const el = document.getElementById(`user-${userId}`);
         if (el) {
             el.classList.toggle('speaking', isSpeaking);
         }
     });
-};
+}
 
-// Обработка кнопок управления
-micBtn.onclick = function () {
-    postToCSharp('toggle_mic', { active: !this.classList.contains('active') });
-};
-
-document.getElementById('hangup-btn').onclick = () => {
-    toggleCallUI(false);
-    postToCSharp('leave_call');
-};
-
-window.setMicState = (state) => {
+function setMicState(state)
+{
     micBtn.classList.remove('active');
     if (state) {
         micBtn.classList.add('active');
@@ -206,7 +233,6 @@ const toggleCallUI = (show) => {
     }, 150);
 };
 
-sendBtn.onclick = handleSend;
 messageInput.onkeypress = (e) => { if (e.key === 'Enter') handleSend(); };
 
 window.onload = () => postToCSharp('get_history');

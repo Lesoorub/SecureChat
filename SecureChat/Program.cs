@@ -1,6 +1,8 @@
 using System.Net.Http;
 using Microsoft.Extensions.DependencyInjection;
-using Org.BouncyCastle.Security;
+using Microsoft.Extensions.Logging;
+using SecureChat.Core.Attributes;
+using SecureChat.Infrastructure.DI;
 
 namespace SecureChat;
 
@@ -12,15 +14,12 @@ internal static class Program
     [STAThread]
     static void Main()
     {
-        //byte[] bytes = new byte[64];
-        //SecureRandom.Shared.NextBytes(bytes);
-
-        //var T = (Convert.ToBase64String(bytes));
-
         var services = new ServiceCollection();
+        services.AddLogging(builder => builder.AddDebug());
         // Регистрация зависимостей
         services.AddSingleton(new HttpClient());
         services.AddSingletonsFromAssembly();
+        services.AddPageControllers();
         var serviceProvider = services.BuildServiceProvider();
 
 

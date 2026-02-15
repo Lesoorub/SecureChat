@@ -1,31 +1,24 @@
 ﻿using System.Buffers;
 using System.IO;
-using System.Text;
 using System.Text.Json;
-using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.IO;
-using Microsoft.Web.WebView2.WinForms;
 using SecureChat.Core;
+using SecureChat.Core.Attributes;
+using SecureChat.Core.Interfaces;
+using SecureChat.Features.Chat.Components;
 using SecureChat.Protocols.WebSockets.ServiceMessage;
-using SecureChat.Tabs.Chat;
+using SecureChat.UI.Base;
 
-namespace SecureChat.Tabs;
-[Tab("/chat/index.html", typeof(Factory))]
-internal partial class ChatTab : AbstractTab, IDisposable
+namespace SecureChat.Features.Chat;
+[Page("/pages/chat/index.html")]
+internal partial class ChatTab : AbstractPage, IDisposable
 {
-    public class Factory : ITabFactory
-    {
-        public AbstractTab Create(WebView2 webView, ServiceProvider serviceProvider)
-        {
-            return new ChatTab(webView, serviceProvider.GetRequiredService<CurrentSession>());
-        }
-    }
-
-    private readonly WebView2 _webView;
+    private readonly IWebView _webView;
     private readonly CurrentSession _currentSession;
 
-    private readonly ChatPanel _chatPanel;
-    private readonly CallPanel _callPanel;
+    [SubHandler] private readonly ChatPanel _chatPanel;
+    [SubHandler] private readonly CallPanel _callPanel;
 
     public delegate void MsgReceivedCallback(MemoryStream message);
     private readonly Dictionary<string, MsgReceivedCallback> _receiveMesgCallbacks = new();
@@ -40,7 +33,8 @@ internal partial class ChatTab : AbstractTab, IDisposable
 
     public event Action<int>? MembersCount;
 
-    public ChatTab(WebView2 webView, CurrentSession currentSession)
+    public ChatTab(ILogger<ChatTab> logger, IWebView webView, CurrentSession currentSession)
+        : base(logger)
     {
         _webView = webView;
         _currentSession = currentSession;
@@ -48,6 +42,8 @@ internal partial class ChatTab : AbstractTab, IDisposable
         _callPanel = new CallPanel(this, currentSession, _cancellationTokenSource.Token);
 
         RegisterServiceCallback(MembersCountResponse.ACTION, x => MembersCount?.Invoke(x.Deserialize<MembersCountResponse>()?.Count ?? 0));
+
+        InitializeActions();
     }
 
     public void RegisterNetCallback(string action, MsgReceivedCallback callback)
@@ -60,19 +56,6 @@ internal partial class ChatTab : AbstractTab, IDisposable
         _receiveMesgCallbacks[action] = stream =>
         {
             callback?.Invoke(JsonSerializer.Deserialize<T>(stream) ?? throw new Exception("Cannot deserialize net message"));
-        };
-    }
-
-    public void RegisterUiCallback(string action, PostMsgCallback callback)
-    {
-        _postMsgCallbacks[action] = callback;
-    }
-
-    public void RegisterUiCallback<T>(string action, Action<T> callback)
-    {
-        _postMsgCallbacks[action] = stream =>
-        {
-            callback?.Invoke(JsonSerializer.Deserialize<T>(stream) ?? throw new Exception("Cannot deserialize ui message"));
         };
     }
 
@@ -118,7 +101,7 @@ internal partial class ChatTab : AbstractTab, IDisposable
                     await Task.Delay(100);
                 }
             }
-            _webView.CoreWebView2.Navigate("https://app.localhost/main/index.html");
+            _webView.NavigateAsync("https://app.localhost/pages/main/index.html");
         }
         finally
         {
@@ -211,36 +194,12 @@ internal partial class ChatTab : AbstractTab, IDisposable
 
     internal void ExecuteScript(string script)
     {
-        _webView.Invoke(() =>
-        {
-            _webView.ExecuteScriptAsync(script);
-        });
+        _webView.ExecuteScriptAsync(script);
     }
 
-    public override void ProcessPostMessage(string json)
+    internal void PostMessage(object data)
     {
-        try
-        {
-            var doc = JsonDocument.Parse(json);
-            if (!doc.RootElement.TryGetProperty("action", out var actionProp) || actionProp.ValueKind != JsonValueKind.String)
-            {
-                return;
-            }
-
-            var action = actionProp.GetString();
-            if (action is not null && _postMsgCallbacks.TryGetValue(action, out var callback))
-            {
-                callback?.Invoke(doc.RootElement);
-            }
-            else
-            {
-                throw new Exception($"Unexpected action: {action}");
-            }
-        }
-        catch (Exception ex)
-        {
-            MessageBox.Show(ex.ToString());
-        }
+        _webView.PostMessage(data);
     }
 
     internal Task Send<T>(T value) where T : notnull
@@ -258,5 +217,8 @@ internal partial class ChatTab : AbstractTab, IDisposable
     {
         _cancellationTokenSource.Cancel();
         _cancellationTokenSource.Dispose();
+
+        (_callPanel as IDisposable)?.Dispose();
+        (_chatPanel as IDisposable)?.Dispose();
     }
 }

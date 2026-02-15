@@ -52,7 +52,6 @@ public class ChatController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, $"{nameof(Join)} throws error");
-            ControllerContext.HttpContext.Response.StatusCode = 500;
         }
     }
 

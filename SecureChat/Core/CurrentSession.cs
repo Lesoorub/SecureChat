@@ -1,4 +1,6 @@
-﻿namespace SecureChat.Core;
+﻿using SecureChat.Core.Attributes;
+
+namespace SecureChat.Core;
 
 [Singeltone]
 internal class CurrentSession

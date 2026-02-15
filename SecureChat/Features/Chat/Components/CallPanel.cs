@@ -1,16 +1,14 @@
 ﻿using System.Collections.Concurrent;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using Microsoft.IO;
-using Microsoft.VisualBasic.ApplicationServices;
 using NAudio.CoreAudioApi;
 using NAudio.Wave;
-using NAudio.Wave.SampleProviders;
 using SecureChat.Core;
+using SecureChat.Core.Attributes;
 
-namespace SecureChat.Tabs.Chat;
+namespace SecureChat.Features.Chat.Components;
 
-internal class CallPanel
+internal class CallPanel : IDisposable
 {
     private readonly ChatTab _tab;
     private readonly CurrentSession _currentSession;
@@ -18,14 +16,10 @@ internal class CallPanel
 
     private bool _micEnabled = false;
 
-    private WasapiCapture? _waveIn;
-    private WasapiOut? _waveOut;
-    private BufferedWaveProvider? _waveProvider;
-    private VolumeSampleProvider? _volumeControl;
-
     private static readonly WaveFormat s_networkFormat = WaveFormat.CreateIeeeFloatWaveFormat(16000, 1);
-    private BufferedWaveProvider? _captureBuffer;
-    private MediaFoundationResampler? _captureResampler;
+    private AudioInput _audioInput;
+    private AudioOutput _audioOutput;
+
     private DateTime _lastAudioDataSend;
 
     private string? _inDeviceId;
@@ -43,6 +37,7 @@ internal class CallPanel
             Username = username;
         }
     }
+
     private readonly ConcurrentDictionary<string/*username*/, DisplayedUser> _users = new();
     private static readonly TimeSpan s_updateParticipantInterval = TimeSpan.FromSeconds(5);
 
@@ -56,17 +51,14 @@ internal class CallPanel
         _currentSession = currentSession;
         _cancellationToken = cancellationToken;
 
-        tab.RegisterUiCallback<StartCall>("start_call", Process);
-        tab.RegisterUiCallback<ToggleMic>("toggle_mic", Process);
-        tab.RegisterUiCallback<OpenSettings>("open_settings", Process);
-        tab.RegisterUiCallback<ApplySettings>("apply_settings", Process);
-        tab.RegisterUiCallback<LeaveCall>("leave_call", Process);
-
         tab.RegisterNetCallback<AudioMessage>(AudioMessage.ACTION, Process);
         tab.RegisterNetCallback<JoinCall>(JoinCall.ACTION, Process);
         tab.RegisterNetCallback<WhoIsThere>(WhoIsThere.ACTION, Process);
         tab.RegisterNetCallback<IAmHere>(IAmHere.ACTION, Process);
 
+        _audioInput = new AudioInput(_inDeviceId, s_networkFormat);
+        _audioInput.AudioData += _audioInput_AudioData;
+        _audioOutput = new AudioOutput(_outDeviceId, s_networkFormat);
         /*
 function volumeChanged() {
     let newVolume = parseFloat(document.getElementById('volSlider').value);
@@ -104,7 +96,7 @@ function volumeChanged() {
                         return new UserSpeaking
                         {
                             UserId = user.Key,
-                            IsSpeaking = (now - user.Value.LastSpeak) < speakUpdateInterval * 2,
+                            IsSpeaking = now - user.Value.LastSpeak < speakUpdateInterval * 2,
                         };
                     }));
                 }
@@ -126,7 +118,7 @@ function volumeChanged() {
             {
                 try
                 {
-                    var isSpeaking = (DateTime.UtcNow - _lastAudioDataSend) < speakUpdateInterval * 2;
+                    var isSpeaking = DateTime.UtcNow - _lastAudioDataSend < speakUpdateInterval * 2;
                     if (isSpeaking != lastState)
                     {
                         lastState = isSpeaking;
@@ -149,127 +141,42 @@ function volumeChanged() {
 
     private void EnableMic()
     {
-        TryDisableMic();
+        _audioInput.Enable();
+    }
 
-        if (string.IsNullOrEmpty(_inDeviceId))
+    private void _audioInput_AudioData(ArraySegment<byte> buffer)
+    {
+        _lastAudioDataSend = DateTime.UtcNow;
+        _tab.Send(new AudioMessage()
         {
-            _waveIn = new WasapiCapture();
-        }
-        else
-        {
-            using var enumerator = new MMDeviceEnumerator();
-            using var device = enumerator.GetDevice(_inDeviceId);
-            _waveIn = new WasapiCapture(device);
-        }
-
-        // 1. Буфер для сырых данных с микрофона (в его родном формате)
-        _captureBuffer = new BufferedWaveProvider(_waveIn.WaveFormat) { ReadFully = false };
-
-        // 2. Ресемплер: из формата микрофона -> в ваш сетевой 48кГц/1канал
-        _captureResampler = new MediaFoundationResampler(_captureBuffer, s_networkFormat);
-        _captureResampler.ResamplerQuality = 60; // Хорошее качество
-
-        _waveIn.DataAvailable += HandleAudioData;
-        _waveIn.StartRecording();
+            UserId = _myUserId,
+            Data = buffer,
+        });
     }
 
     private void TryDisableMic()
     {
-        if (_waveIn is not null)
-        {
-            _waveIn.StopRecording();
-            _waveIn.DataAvailable -= HandleAudioData;
-            _waveIn.Dispose();
-            _waveIn = null;
-        }
-    }
-
-    private void HandleAudioData(object? obj, WaveInEventArgs args)
-    {
-        if (_captureBuffer is null ||  _captureResampler is null)
-        {
-            return;
-        }
-
-        // Сначала кладем данные в промежуточный буфер
-        _captureBuffer.AddSamples(args.Buffer, 0, args.BytesRecorded);
-
-        // Читаем из ресемплера уже преобразованные данные
-        byte[] outBuffer = new byte[args.BytesRecorded]; // Размер с запасом
-        int read = _captureResampler.Read(outBuffer, 0, outBuffer.Length);
-        if (read > 0)
-        {
-            _lastAudioDataSend = DateTime.UtcNow;
-            _tab.Send(new AudioMessage()
-            {
-                UserId = _myUserId,
-                Data = new ArraySegment<byte>(outBuffer, 0, read),
-            });
-        }
+        _audioInput.Disable();
     }
 
     private void EnableSpeaker()
     {
-        if (string.IsNullOrEmpty(_outDeviceId))
-        {
-            _waveOut = new WasapiOut();
-        }
-        else
-        {
-            using var enumerator = new MMDeviceEnumerator();
-            using var device = enumerator.GetDevice(_outDeviceId);
-            _waveOut = new WasapiOut(device, AudioClientShareMode.Shared, true, 100);
-        }
-
-        _waveProvider = new BufferedWaveProvider(s_networkFormat)
-        {
-            DiscardOnBufferOverflow = true,
-            ReadFully = true,
-        };
-
-        // 1. Превращаем байты в Float Sample Provider
-        var sampleProvider = _waveProvider.ToSampleProvider();
-
-        // 2. Ресемплируем и меняем количество каналов под целевое устройство (OutputWaveFormat)
-        // Это магия, которая адаптирует 48000/1 в то, что хочет Windows (например, 44100/2)
-        var resampler = new WdlResamplingSampleProvider(sampleProvider, _waveOut.OutputWaveFormat.SampleRate);
-
-        // 3. Если устройство стерео, а входящий звук моно — приводим к стерео
-        ISampleProvider finalProvider = resampler;
-        if (_waveOut.OutputWaveFormat.Channels > 1 && s_networkFormat.Channels == 1)
-        {
-            finalProvider = new MonoToStereoSampleProvider(resampler);
-        }
-
-        _volumeControl = new VolumeSampleProvider(finalProvider) { Volume = 1.0f };
-        _waveOut.PlaybackStopped += (s, e) =>
-        {
-            Console.WriteLine($"Playback Stopped! Reason: {e.Exception?.Message}");
-        };
-        _waveOut.Init(_volumeControl.ToWaveProvider()); // Инициализируем уже адаптированным провайдером
-        _waveOut.Play();
+        _audioOutput.Enable();
     }
 
     private void TryDisableSpeaking()
     {
-        if (_volumeControl is not null)
-        {
-            _volumeControl = null;
-        }
-
-        if (_waveOut is not null)
-        {
-            _waveOut.Stop();
-            _waveOut.Dispose();
-            _waveOut = null;
-        }
+        _audioOutput.Disable();
     }
 
-    // Вызывай этот метод из TrackBar.Scroll
-    private void ChangeVolume(float volume)
+    private void SetSpeakerVolume(float volume)
     {
-        if (_volumeControl != null)
-            _volumeControl.Volume = volume; // Например, от 0.0f до 2.0f
+        _audioOutput.Volume = volume;
+    }
+
+    private void SetMicVolume(float volume)
+    {
+        _audioInput.Volume = volume;
     }
 
     #endregion
@@ -282,14 +189,12 @@ function volumeChanged() {
     /// <param name="request"></param>
     void Process(AudioMessage request)
     {
-        if (_waveProvider is not null && request.UserId is not null)
+        if (request.UserId is not null && 
+            _audioOutput is not null && 
+            _audioOutput.AddAudioData(request.Data) && 
+            _users.TryGetValue(request.UserId, out var user))
         {
-            _waveProvider.AddSamples(request.Data.Array, request.Data.Offset, request.Data.Count);
-            Console.WriteLine($"Buffered bytes: {_waveProvider.BufferedBytes}");
-            if (_users.TryGetValue(request.UserId, out var user))
-            {
-                user.LastSpeak = DateTime.UtcNow;
-            }
+            user.LastSpeak = DateTime.UtcNow;
         }
     }
 
@@ -390,7 +295,8 @@ function volumeChanged() {
 
     #region UI_EVENTS
 
-    void Process(StartCall _)
+    [JsAction("start_call")]
+    internal void Process(StartCall _)
     {
         _tab.Send(new JoinCall()
         {
@@ -402,10 +308,59 @@ function volumeChanged() {
         EnableUpdateParticipant();
     }
 
-    void Process(LeaveCall _)
+    [JsAction("leave_call")]
+    internal void Process(LeaveCall _)
     {
         DisableUpdateParticipant();
         TryDisableSpeaking();
+    }
+
+    [JsAction("toggle_mic")]
+    internal void Process(ToggleMic _)
+    {
+        _micEnabled = !_micEnabled;
+        SetMicState(_micEnabled);
+
+        if (_micEnabled)
+        {
+            EnableMic();
+        }
+        else
+        {
+            TryDisableMic();
+        }
+    }
+
+    [JsAction("open_settings")]
+    internal void Process(OpenSettings _)
+    {
+        using var enumerator = new MMDeviceEnumerator();
+
+        // Получаем устройства ввода (микрофоны)
+        var captureDevices = enumerator.EnumerateAudioEndPoints(DataFlow.Capture, DeviceState.Active)
+            .Select(d => new AudioDevice { Id = d.ID, Name = d.FriendlyName })
+            .ToList();
+
+        // Получаем устройства вывода (динамики/наушники)
+        var renderDevices = enumerator.EnumerateAudioEndPoints(DataFlow.Render, DeviceState.Active)
+            .Select(d => new AudioDevice { Id = d.ID, Name = d.FriendlyName })
+            .ToList();
+
+        FillAudioDevices(captureDevices, renderDevices);
+    }
+
+    [JsAction("apply_settings")]
+    internal void Process(ApplySettings request)
+    {
+        // Сохраняем ID устройств в конфиг или поля класса
+        string selectedMicId = request.MicId;
+        string selectedSpeakerId = request.SpeakerId;
+
+        _inDeviceId = selectedMicId;
+        _outDeviceId = selectedSpeakerId;
+
+        SetSpeakerVolume(request.Volume);
+        SetMicVolume(request.MicGain);
     }
 
     private void EnableUpdateParticipant()
@@ -449,52 +404,6 @@ function volumeChanged() {
         }
     }
 
-    void Process(ToggleMic _)
-    {
-        _micEnabled = !_micEnabled;
-        _tab.ExecuteScript($"window.setMicState({_micEnabled.ToString().ToLower()})");
-
-        if (_micEnabled)
-        {
-            EnableMic();
-        }
-        else
-        {
-            TryDisableMic();
-        }
-    }
-
-    void Process(OpenSettings _)
-    {
-        using var enumerator = new MMDeviceEnumerator();
-
-        // Получаем устройства ввода (микрофоны)
-        var captureDevices = enumerator.EnumerateAudioEndPoints(DataFlow.Capture, DeviceState.Active)
-            .Select(d => new AudioDevice { Id = d.ID, Name = d.FriendlyName })
-            .ToList();
-
-        // Получаем устройства вывода (динамики/наушники)
-        var renderDevices = enumerator.EnumerateAudioEndPoints(DataFlow.Render, DeviceState.Active)
-            .Select(d => new AudioDevice { Id = d.ID, Name = d.FriendlyName })
-            .ToList();
-
-        // Сериализуем и отправляем в JS
-        string micsJson = JsonSerializer.Serialize(captureDevices);
-        string speakersJson = JsonSerializer.Serialize(renderDevices);
-
-        _tab.ExecuteScript($"window.fillAudioDevices({micsJson}, {speakersJson})");
-    }
-
-    void Process(ApplySettings request)
-    {
-        // Сохраняем ID устройств в конфиг или поля класса
-        string selectedMicId = request.MicId;
-        string selectedSpeakerId = request.SpeakerId;
-
-        _inDeviceId = selectedMicId;
-        _outDeviceId = selectedSpeakerId;
-    }
-
     void UpdateParticipantsFromUsers()
     {
         var myusername = string.IsNullOrWhiteSpace(_currentSession.Username) ? "Вы" : _currentSession.Username;
@@ -504,7 +413,7 @@ function volumeChanged() {
         var now = DateTime.UtcNow;
         foreach (var (userId, user) in _users.OrderBy(x => x.Key))
         {
-            if ((now - user.LastPong) < s_updateParticipantInterval * 2) // Если ответ был меньше чем два интервала опроса.
+            if (now - user.LastPong < s_updateParticipantInterval * 2) // Если ответ был меньше чем два интервала опроса.
             {
                 list.Add(new() { Id = userId, Name = user.Username });
             }
@@ -512,16 +421,24 @@ function volumeChanged() {
         UpdateParticipants(new ParticipantsUpdate { Participants = list });
     }
 
+    void SetMicState(bool state)
+    {
+        _tab.PostMessage(new { action = "set_mic_state", value = state });
+    }
+
+    void FillAudioDevices(List<AudioDevice> captureDevices, List<AudioDevice> renderDevices)
+    {
+        _tab.PostMessage(new { action = "fill_audio_devices", mics = captureDevices, speakers = renderDevices });
+    }
+
     void UpdateParticipants(ParticipantsUpdate participantsData)
     {
-        // Передаем список участников в JS
-        string jsonParticipants = JsonSerializer.Serialize(participantsData.Participants);
-        _tab.ExecuteScript($"window.updateParticipants({jsonParticipants})");
+        _tab.PostMessage(new { action = "update_participants", participants = participantsData.Participants });
     }
 
     void SetSpeaking(string userId, bool isSpeaking)
     {
-        _tab.ExecuteScript($"window.setSpeaking({JsonSerializer.Serialize(userId)}, {JsonSerializer.Serialize(isSpeaking)})");
+        _tab.PostMessage(new { action = "set_speaking", userId = userId, isSpeaking = isSpeaking });
     }
 
     void SetUsersSpeaking(IEnumerable<UserSpeaking> speakingList)
@@ -529,11 +446,7 @@ function volumeChanged() {
         // Превращаем список в словарь { "userId": isSpeaking }
         var states = speakingList.ToDictionary(x => x.UserId, x => x.IsSpeaking);
 
-        // Сериализуем в JSON
-        string json = JsonSerializer.Serialize(states);
-
-        // Вызываем JS один раз
-        _tab.ExecuteScript($"window.setUsersSpeaking({json})");
+        _tab.PostMessage(new { action = "set_users_speaking", states = states });
     }
 
     public void ShowCallPanel()
@@ -546,6 +459,12 @@ function volumeChanged() {
     {
         // Скрыть панель звонка в JS
         _tab.ExecuteScript("document.getElementById('call-panel').classList.add('hidden')");
+    }
+
+    public void Dispose()
+    {
+        _audioInput.Dispose();
+        _audioOutput.Dispose();
     }
 
     public class Participant
@@ -600,30 +519,30 @@ function volumeChanged() {
         [JsonPropertyName("active")] public bool Active { get; set; }
     }
 
-    public class OpenSettings 
-    { 
+    public class OpenSettings
+    {
 
     }
 
     public class ApplySettings
     {
-        [JsonPropertyName("micId")] 
+        [JsonPropertyName("micId")]
         public string? MicId { get; set; }
 
-        [JsonPropertyName("speakerId")] 
+        [JsonPropertyName("speakerId")]
         public string? SpeakerId { get; set; }
 
         [JsonPropertyName("volume")]
-        public int Volume { get; set; } // 0-100
+        public float Volume { get; set; } // 0.0-1.0
 
         [JsonPropertyName("micGain")]
-        public float MicGain { get; set; } // 0.0 - 5.0
+        public float MicGain { get; set; } // 0.0-1.0
 
         [JsonPropertyName("activation")]
         public string? Activation { get; set; } // "voice", "push-to-talk", "always"
 
         [JsonPropertyName("threshold")]
-        public int Threshold { get; set; } // -100 to 0 (dB)
+        public int Threshold { get; set; } // 0-100
 
         [JsonPropertyName("pttKey")]
         public string? PttKey { get; set; } // Например, "Space" или "KeyV"

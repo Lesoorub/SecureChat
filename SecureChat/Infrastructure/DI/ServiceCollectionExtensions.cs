@@ -1,7 +1,8 @@
 ﻿using System.Reflection;
 using Microsoft.Extensions.DependencyInjection;
+using SecureChat.Core.Attributes;
 
-namespace SecureChat;
+namespace SecureChat.Infrastructure.DI;
 
 public static class ServiceCollectionExtensions
 {
@@ -33,8 +34,6 @@ public static class ServiceCollectionExtensions
         if (!implementationType.IsClass || implementationType.IsAbstract)
             return;
 
-        var attribute = implementationType.GetCustomAttribute<SingeltoneAttribute>();
-
         // Проверяем, реализует ли класс интерфейсы
         var interfaces = implementationType.GetInterfaces();
 
@@ -51,7 +50,5 @@ public static class ServiceCollectionExtensions
             // Регистрируем сам класс
             services.AddSingleton(implementationType);
         }
-
-        Console.WriteLine($"Registered singleton: {implementationType.Name} (Order: {attribute?.Order})");
     }
 }
