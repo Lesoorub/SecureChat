@@ -26,6 +26,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\SecureChat.Protocols\SecureChat.Protocols.csproj" />
     <ProjectReference Include="..\SRP.Extra\SRP.Extra.csproj" />
   </ItemGroup>
 

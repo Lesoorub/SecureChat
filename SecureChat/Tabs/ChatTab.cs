@@ -1,14 +1,17 @@
-﻿using System.Text;
+﻿using System.Buffers;
+using System.IO;
+using System.Text;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.IO;
 using Microsoft.Web.WebView2.WinForms;
 using SecureChat.Core;
+using SecureChat.Protocols.WebSockets.ServiceMessage;
 using SecureChat.Tabs.Chat;
 
 namespace SecureChat.Tabs;
 [Tab("/chat/index.html", typeof(Factory))]
-internal partial class ChatTab : AbstractTab
+internal partial class ChatTab : AbstractTab, IDisposable
 {
     public class Factory : ITabFactory
     {
@@ -24,28 +27,58 @@ internal partial class ChatTab : AbstractTab
     private readonly ChatPanel _chatPanel;
     private readonly CallPanel _callPanel;
 
-    public delegate void MsgReceivedCallback(DecryptedMessage message);
+    public delegate void MsgReceivedCallback(MemoryStream message);
     private readonly Dictionary<string, MsgReceivedCallback> _receiveMesgCallbacks = new();
 
     public delegate void PostMsgCallback(JsonElement message);
     private readonly Dictionary<string, PostMsgCallback> _postMsgCallbacks = new();
+
+    public delegate void ServiceMsgCallback(JsonElement message);
+    private readonly Dictionary<string, ServiceMsgCallback> _serviceMsgCallbacks = new();
+
+    private readonly CancellationTokenSource _cancellationTokenSource = new();
+
+    public event Action<int>? MembersCount;
 
     public ChatTab(WebView2 webView, CurrentSession currentSession)
     {
         _webView = webView;
         _currentSession = currentSession;
         _chatPanel = new ChatPanel(this, currentSession);
-        _callPanel = new CallPanel(this, currentSession);
+        _callPanel = new CallPanel(this, currentSession, _cancellationTokenSource.Token);
+
+        RegisterServiceCallback(MembersCountResponse.ACTION, x => MembersCount?.Invoke(x.Deserialize<MembersCountResponse>()?.Count ?? 0));
     }
 
-    public void RegisterMessageReceivedCallback(string action, MsgReceivedCallback callback)
+    public void RegisterNetCallback(string action, MsgReceivedCallback callback)
     {
         _receiveMesgCallbacks[action] = callback;
     }
 
-    public void RegisterPostMsgCallback(string action, PostMsgCallback callback)
+    public void RegisterNetCallback<T>(string action, Action<T> callback)
+    {
+        _receiveMesgCallbacks[action] = stream =>
+        {
+            callback?.Invoke(JsonSerializer.Deserialize<T>(stream) ?? throw new Exception("Cannot deserialize net message"));
+        };
+    }
+
+    public void RegisterUiCallback(string action, PostMsgCallback callback)
     {
         _postMsgCallbacks[action] = callback;
+    }
+
+    public void RegisterUiCallback<T>(string action, Action<T> callback)
+    {
+        _postMsgCallbacks[action] = stream =>
+        {
+            callback?.Invoke(JsonSerializer.Deserialize<T>(stream) ?? throw new Exception("Cannot deserialize ui message"));
+        };
+    }
+
+    public void RegisterServiceCallback(string action, ServiceMsgCallback callback)
+    {
+        _serviceMsgCallbacks[action] = callback;
     }
 
     public override void PageLoaded()
@@ -55,6 +88,11 @@ internal partial class ChatTab : AbstractTab
         Task.Run(ReceiveMessages);
     }
 
+    public void RequestRoomMembersCount()
+    {
+        Send(new MembersCountRequest());
+    }
+
     private async Task ReceiveMessages()
     {
         var session = _currentSession.Session;
@@ -62,16 +100,113 @@ internal partial class ChatTab : AbstractTab
         {
             return;
         }
-        while (session.IsActive)
+        try
         {
-            using var packet = await session.ReceiveEncodedAsync();
-            var msgBase = packet.Deserialize<MessageBase>();
-            if (_receiveMesgCallbacks.TryGetValue(msgBase.Action, out var callback))
+            while (session.IsActive)
             {
-                callback?.Invoke(packet);
+                try
+                {
+                    using var rawMsgStream = await session.ReceiveFullMessageAsStreamAsync();
+                    if (TryReadServiceMessage(rawMsgStream))
+                    {
+                        continue;
+                    }
+                    ReadEncryptedMessage(session, rawMsgStream);
+                }
+                catch
+                {
+                    await Task.Delay(100);
+                }
+            }
+            _webView.CoreWebView2.Navigate("https://app.localhost/main/index.html");
+        }
+        finally
+        {
+            session.Dispose();
+        }
+    }
+
+    private void ReadEncryptedMessage(ChatSession session, RecyclableMemoryStream rawMsgStream)
+    {
+        using var decryptedMsgStream = session.DecryptOptimized(rawMsgStream);
+        if (!IsJson(decryptedMsgStream))
+        {
+            return;
+        }
+        using var doc = JsonDocument.Parse(decryptedMsgStream.GetReadOnlySequence());
+
+        if (doc.RootElement.TryGetProperty("action"u8, out var actionProp) &&
+            actionProp.ValueKind == JsonValueKind.String)
+        {
+            var action = actionProp.GetString();
+            if (action is not null && _receiveMesgCallbacks.TryGetValue(action, out var callback))
+            {
+                callback?.Invoke(decryptedMsgStream);
             }
         }
-        _webView.CoreWebView2.Navigate("https://app.localhost/main/index.html");
+    }
+
+    private bool TryReadServiceMessage(RecyclableMemoryStream ms)
+    {
+        if (ms.Length > 256 || ms.Length <= 2)
+        {
+            return false;
+        }
+
+        try
+        {
+            if (!IsJson(ms))
+            {
+                return false;
+            }
+
+            // Parse принимает ReadOnlySequence напрямую — это максимально быстро
+            using var doc = JsonDocument.Parse(ms.GetReadOnlySequence());
+
+            if (doc.RootElement.TryGetProperty("action"u8, out var actionProp) &&
+                actionProp.ValueKind == JsonValueKind.String)
+            {
+                var action = actionProp.GetString();
+                if (action != null && _serviceMsgCallbacks.TryGetValue(action, out var callback))
+                {
+                    callback?.Invoke(doc.RootElement.Clone()); // Клонируем, если callback использует данные после Dispose doc
+                    return true;
+                }
+            }
+        }
+        catch
+        {
+            // Игнорируем ошибки парсинга, возвращаем false
+        }
+
+        return false;
+    }
+
+    public bool IsJson(RecyclableMemoryStream ms)
+    {
+        var sequence = ms.GetReadOnlySequence();
+        if (sequence.IsSingleSegment)
+        {
+            var span = sequence.FirstSpan;
+            return span.StartsWith("{"u8) && span.EndsWith("}"u8);
+        }
+        else
+        {
+            return IsJson(sequence);
+        }
+    }
+
+    public bool IsJson(ReadOnlySequence<byte> sequence)
+    {
+        if (sequence.IsEmpty) return false;
+
+        // Первый байт первого сегмента
+        byte first = sequence.First.Span[0];
+
+        // Универсальный способ для последнего байта:
+        byte universalLast = sequence.Slice(sequence.GetPosition(sequence.Length - 1)).First.Span[0];
+
+        return first == (byte)'{' && universalLast == (byte)'}';
     }
 
     internal void ExecuteScript(string script)
@@ -108,19 +243,20 @@ internal partial class ChatTab : AbstractTab
         }
     }
 
-    internal void Send<T>(T value)
+    internal Task Send<T>(T value) where T : notnull
     {
         var session = _currentSession.Session;
         if (session is null || !session.IsActive)
         {
-            return;
+            return Task.CompletedTask;
         }
-        _ = session.SendEncodedAsync(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(value)));
+
+        return session.SendJsonEncodedAsync(value);
     }
 
-    public class MessageBase
+    public void Dispose()
     {
-        [JsonPropertyName("action")]
-        public string Action { get; set; } = string.Empty;
+        _cancellationTokenSource.Cancel();
+        _cancellationTokenSource.Dispose();
     }
 }

@@ -2,14 +2,11 @@
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Web.WebView2.WinForms;
-using NAudio.CoreAudioApi;
-using NAudio.Wave;
-using NAudio.Wave.SampleProviders;
 using SecureChat.Core;
 
 namespace SecureChat.Tabs;
 
-[Tab("/main/index.html", typeof(Factory))]
+[Tab("/main/index.html", typeof(Factory), initPage: true)]
 internal class MainTab : AbstractTab
 {
     public class Factory : ITabFactory
@@ -24,75 +21,12 @@ internal class MainTab : AbstractTab
     private readonly BackendAdapter _backendAdapter;
     private readonly CurrentSession _session;
 
-    private WasapiCapture? _waveIn;
-    private WaveOutEvent? _waveOut;
-    private BufferedWaveProvider? _waveProvider;
-    private VolumeSampleProvider? _volumeControl;
-
     public MainTab(WebView2 webView, BackendAdapter backendAdapter, CurrentSession session)
     {
         _webView = webView;
         _backendAdapter = backendAdapter;
         _session = session;
-    }
-
-    private void StartAudio()
-    {
-        _waveIn = new WasapiCapture();
-        var format = _waveIn.WaveFormat;
-
-        _waveProvider = new BufferedWaveProvider(format);
-
-        // 1. Оборачиваем провайдер в SampleProvider
-        var sampleProvider = _waveProvider.ToSampleProvider();
-
-        // 2. Добавляем звено управления громкостью
-        _volumeControl = new VolumeSampleProvider(sampleProvider)
-        {
-            Volume = 1.0f // Громкость по умолчанию (1.0 = 100%)
-        };
-
-        _waveOut = new WaveOutEvent();
-        _waveOut.Init(_volumeControl); // Инициализируем через контроллер громкости
-
-        _waveIn.DataAvailable += (s, args) =>
-            _waveProvider.AddSamples(args.Buffer, 0, args.BytesRecorded);
-
-        _waveOut.Play();
-        _waveIn.StartRecording();
-
-        ToggleButtons(true);
-    }
-
-    // Вызывай этот метод из TrackBar.Scroll
-    private void ChangeVolume(float volume)
-    {
-        if (_volumeControl != null)
-            _volumeControl.Volume = volume; // Например, от 0.0f до 2.0f
-    }
-
-    private void StopAudio()
-    {
-        _waveIn?.StopRecording();
-        _waveOut?.Stop();
-
-        _waveIn?.Dispose();
-        _waveIn = null;
-        _waveOut?.Dispose();
-        _waveOut = null;
-        _waveProvider = null;
-        _volumeControl = null; // Обнуляем
-
-        ToggleButtons(false);
-    }
-
-    private void ToggleButtons(bool isRunning)
-    {
-        _webView.Invoke(() =>
-        {
-            // Вызываем универсальный метод успеха
-            _webView.CoreWebView2.ExecuteScriptAsync($"window.toggleBtns({isRunning.ToString().ToLower()});");
-        });
+        session.Reset();
     }
 
     public override void PageLoaded()
@@ -142,16 +76,6 @@ internal class MainTab : AbstractTab
                 default:
                     throw new Exception($"Unexpected action: {action}");
 
-                case "start":
-                    StartAudio(); 
-                    break;
-                case "stop":
-                    StopAudio(); 
-                    break;
-                case "volumeChanged":
-                    ChangeVolume(doc.RootElement.GetProperty("value").GetSingle());
-                    break;
-
                 case "SAVE_SETTINGS":
                     ProcessSaveSettings(doc.RootElement.Deserialize<SaveSettings>() ?? throw new Exception("Failed to deserialize 'SAVE_SETTINGS' message"));
                     break;
@@ -200,8 +124,7 @@ internal class MainTab : AbstractTab
             {
                 await _backendAdapter.CreateChat(request.RoomName, request.Password);
                 var session = await _backendAdapter.JoinChat(request.RoomName, request.Password);
-                _session.Username = request.Username;
-                _session.Session = session;
+                _session.Set(request.Username, session);
                 AuthSuccess();
             }
             catch (Exception ex)
@@ -228,8 +151,7 @@ internal class MainTab : AbstractTab
             try
             {
                 var session = await _backendAdapter.JoinChat(request.RoomName, request.Password);
-                _session.Username = request.Username;
-                _session.Session = session;
+                _session.Set(request.Username, session);
                 AuthSuccess();
             }
             catch (Exception ex)

@@ -18,7 +18,12 @@ namespace SecureChat.Core;
 [Singeltone(Order: 1)]
 internal class BackendAdapter
 {
-    public string ServerUrl { get; set; } = "http://212.193.27.71:5000/";
+    public string ServerUrl { get; set; } =
+#if DEBUG
+        "https://localhost:44362/";
+#else
+        "http://212.193.27.71:5000/";
+#endif
 
     private readonly HttpClient _httpClient;
 
@@ -65,14 +70,11 @@ internal class BackendAdapter
         {
             await ws.ConnectAsync(wsUri, cts.Token);
         }
-        await AuthSRC(ws, roomname, password);
+        using var cts2 = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        {
+            await ws.AuthSrpAsClient(roomname, password);
+        }
         return new ChatSession(ws, await DeriveKeyAsync(password, roomname));
-    }
-
-    public static async Task AuthSRC(ClientWebSocket webSocket, string roomname, string password)
-    {
-        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-        await webSocket.AuthSrpAsClient(roomname, password);
     }
 
     public async Task<byte[]> DeriveKeyAsync(string password, string roomName)

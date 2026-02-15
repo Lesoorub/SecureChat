@@ -83,7 +83,7 @@ public static class WebsocketExtensions
         }
     }
 
-    public static async Task<string> AuthSrpAsClient(this ClientWebSocket webSocket, string username, string password, CancellationToken ct = default)
+    public static async Task<string> AuthSrpAsClient(this WebSocket webSocket, string username, string password, CancellationToken ct = default)
     {
         byte[] buffer = ArrayPool<byte>.Shared.Rent(32 * 1024);
         try

@@ -15,12 +15,12 @@ internal class ChatPanel
         _tab = tab;
         _currentSession = currentSession;
 
-        tab.RegisterMessageReceivedCallback("msg", x => Process(x.Deserialize<Message>()));
-        tab.RegisterMessageReceivedCallback("confirm_msg", x => Process(x.Deserialize<ConfirmMessage>()));
-        tab.RegisterMessageReceivedCallback("user_connected", x => Process(x.Deserialize<UserConnected>()));
+        tab.RegisterNetCallback<Message>("msg", Process);
+        tab.RegisterNetCallback<ConfirmMessage>("confirm_msg", Process);
+        tab.RegisterNetCallback<UserConnected>("user_connected", Process);
 
-        tab.RegisterPostMsgCallback("send_message", x => ProcessSendMessage(x.Deserialize<SendMessage>() ?? throw new Exception("Failed to deserialize 'send_message' message")));
-        tab.RegisterPostMsgCallback("get_history", x => ProcessGetHistory(x.Deserialize<GetHistory>() ?? throw new Exception("Failed to deserialize 'get_history' message")));
+        tab.RegisterUiCallback<SendMessage>("send_message", Process);
+        tab.RegisterUiCallback<GetHistory>("get_history", Process);
     }
 
     public void PageLoaded()
@@ -42,6 +42,13 @@ internal class ChatPanel
             /*text*/$"'Подтверженное', " +
             /*id*/$"'124', " +
             /*status*/$"'sent', " +
+            /*senderName*/$"'Я'" +
+        $")");
+        _tab.ExecuteScript($"appendMessage(" +
+            /*role*/$"'user', " +
+            /*text*/$"'Ошибка', " +
+            /*id*/$"'124', " +
+            /*status*/$"'error', " +
             /*senderName*/$"'Я'" +
         $")");
         AppendMessage(true, "Я", "Очень длинное сообщение. Очень длинное сообщение. Очень длинное сообщение. Очень длинное сообщение. Очень длинное сообщение. Очень длинное сообщение. Очень длинное сообщение. Очень длинное сообщение. Очень длинное сообщение. Очень длинное сообщение. Очень длинное сообщение. Очень длинное сообщение. Очень длинное сообщение. ");
@@ -77,7 +84,7 @@ internal class ChatPanel
         public string Text { get; set; } = string.Empty;
     }
 
-    private void ProcessSendMessage(SendMessage request)
+    private void Process(SendMessage request)
     {
         _tab.Send(new Message
         {
@@ -92,7 +99,7 @@ internal class ChatPanel
 
     }
 
-    private void ProcessGetHistory(GetHistory _)
+    private void Process(GetHistory _)
     {
         // 1. Получаете данные из БД или сервиса
         var history = new[] {
@@ -127,8 +134,10 @@ internal class ChatPanel
 
     public class Message
     {
+        public const string ACTION = "msg";
+
         [JsonPropertyName("action")]
-        public string Action { get; set; } = "msg";
+        public string Action { get; set; } = ACTION;
 
         [JsonPropertyName("msg_id")]
         public string MessageId { get; set; } = string.Empty;
@@ -142,8 +151,10 @@ internal class ChatPanel
 
     public class ConfirmMessage
     {
+        public const string ACTION = "confirm_msg";
+
         [JsonPropertyName("action")]
-        public string Action { get; set; } = "confirm_msg";
+        public string Action { get; set; } = ACTION;
 
         [JsonPropertyName("msg_id")]
         public string MessageId { get; set; } = string.Empty;
@@ -151,8 +162,10 @@ internal class ChatPanel
 
     public class UserConnected
     {
+        public const string ACTION = "user_connected";
+
         [JsonPropertyName("action")]
-        public string Action { get; set; } = "user_connected";
+        public string Action { get; set; } = ACTION;
 
         [JsonPropertyName("username")]
         public string Username { get; set; } = string.Empty;

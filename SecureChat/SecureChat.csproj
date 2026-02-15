@@ -1,7 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
 	<PropertyGroup>
-		<OutputType>WinExe</OutputType>
+		<OutputType>Exe</OutputType>
 		<TargetFramework>net8.0-windows</TargetFramework>
 		<UseWPF>true</UseWPF>
 		<Nullable>enable</Nullable>
@@ -27,12 +27,14 @@
 	</ItemGroup>
 
 	<ItemGroup>
+		<None Remove="wwwroot\chat\settingsWindow.js" />
 		<None Remove="wwwroot\main\index.html" />
 		<None Remove="wwwroot\main\index.js" />
 		<None Remove="wwwroot\main\style.css" />
 	</ItemGroup>
 
 	<ItemGroup>
+	  <ProjectReference Include="..\SecureChat.Protocols\SecureChat.Protocols.csproj" />
 	  <ProjectReference Include="..\SRP.Extra\SRP.Extra.csproj" />
 	</ItemGroup>
 

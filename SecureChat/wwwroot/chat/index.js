@@ -3,10 +3,7 @@ const messageInput = document.getElementById('message-input');
 const sendBtn = document.getElementById('send-btn');
 const callPanel = document.getElementById('call-panel');
 const callStartBtn = document.getElementById('call-start-btn');
-const settingsModal = document.getElementById('settings-modal');
-const micSelect = document.getElementById('mic-select');
-const speakerSelect = document.getElementById('speaker-select');
-
+const micBtn = document.getElementById('mic-btn');
 
 function postToCSharp(action, data = {}) {
     if (window.chrome && window.chrome.webview) {
@@ -36,9 +33,15 @@ window.appendMessage = (role, text, id = null, status = 'sent', senderName = 'Б
     } else if (role === 'user') {
         // Пользователь: справа, синий фон, тень
         wrapper.classList.add('align-items-end');
+        // Оставляем bg-primary для обычных сообщений
         msgDiv.classList.add('bg-primary', 'text-white', 'rounded-4', 'rounded-bottom-end-0', 'shadow-sm', 'border');
-        statusSpan.textContent = status === 'pending' ? '...' : (status === 'sent' ? '✓' : '!');
+
         nameDiv.remove();
+        if (status === 'pending') {
+            msgDiv.classList.add('pending-anim');
+        } else if (status === 'error') {
+            msgDiv.classList.add('error-bg');
+        }
     } else {
         // Бот: слева, светлый фон, тень
         wrapper.classList.add('align-items-start');
@@ -51,18 +54,22 @@ window.appendMessage = (role, text, id = null, status = 'sent', senderName = 'Б
     messagesContainer.scrollTo({ top: messagesContainer.scrollHeight, behavior: 'smooth' });
 };
 
-
-// Вызов из C#: updateMessageStatus('msg_123', 'sent') или 'error'
 window.updateMessageStatus = (id, status) => {
     const msg = document.getElementById(id);
-    if (msg) {
-        const statusSpan = msg.querySelector('.status');
-        if (statusSpan) {
-            statusSpan.textContent = status === 'pending' ? '...' : (status === 'sent' ? '✓' : '!');
-        }
-    }
-};
+    if (!msg) return;
 
+    // Сначала очищаем все спец-состояния
+    msg.classList.remove('pending-anim', 'error-bg');
+
+    if (status === 'pending') {
+        msg.classList.add('pending-anim');
+    }
+    else if (status === 'error') {
+        msg.classList.add('error-bg');
+    }
+    // Если status === 'sent', мы просто оставили классы пустыми, 
+    // и Bootstrap вернет стандартный bg-primary
+};
 
 function handleSend() {
     const text = messageInput.value.trim();
@@ -155,9 +162,17 @@ window.setSpeaking = (userId, isSpeaking) => {
     }
 };
 
+window.setUsersSpeaking = (states) => {
+    Object.entries(states).forEach(([userId, isSpeaking]) => {
+        const el = document.getElementById(`user-${userId}`);
+        if (el) {
+            el.classList.toggle('speaking', isSpeaking);
+        }
+    });
+};
+
 // Обработка кнопок управления
-document.getElementById('mic-btn').onclick = function () {
-    //this.classList.toggle('active');
+micBtn.onclick = function () {
     postToCSharp('toggle_mic', { active: !this.classList.contains('active') });
 };
 
@@ -166,37 +181,12 @@ document.getElementById('hangup-btn').onclick = () => {
     postToCSharp('leave_call');
 };
 
-// Открытие модалки
-document.getElementById('settings-btn').onclick = () => {
-    postToCSharp('get_audio_devices');
-    // Вместо settingsModal.showModal() используем:
-    bsSettingsModal.show();
-};
-
-// Закрытие
-document.getElementById('close-settings').onclick = () => bsSettingsModal.hide();
-
-// Применение настроек
-document.getElementById('save-settings').onclick = () => {
-    postToCSharp('set_audio_devices', {
-        micId: micSelect.value,
-        speakerId: speakerSelect.value
-    });
-
-    // Получаем экземпляр модалки Bootstrap и закрываем её
-    const modalElement = document.getElementById('settingsModal');
-    const modalInstance = bootstrap.Modal.getOrCreateInstance(modalElement);
-    modalInstance.hide();
-};
-
-// Функция для C#, чтобы заполнить списки устройств
-window.fillAudioDevices = (mics, speakers) => {
-    const fill = (select, items) => {
-        select.innerHTML = items.map(i => `<option value="${i.id}">${i.name}</option>`).join('');
-    };
-    fill(micSelect, mics);
-    fill(speakerSelect, speakers);
-};
+window.setMicState = (state) => {
+    micBtn.classList.remove('active');
+    if (state) {
+        micBtn.classList.add('active');
+    }
+}
 
 const toggleCallUI = (show) => {
     if (show) {

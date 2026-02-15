@@ -1,7 +1,6 @@
 using System.Runtime.InteropServices;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Web.WebView2.Core;
-using NAudio.Wave;
 
 namespace SecureChat;
 
@@ -9,6 +8,7 @@ public partial class MainForm : Form
 {
     private AbstractTab? _currentTab;
 
+    private string? _initPageAddress;
     private readonly Dictionary<string, ITabFactory> _tabFactories = new();
     private Task _asyncLoadTask;
     private readonly ServiceProvider _serviceProvider;
@@ -31,6 +31,10 @@ public partial class MainForm : Form
         {
             foreach (var (type, attr) in TabAttribute.GetTypesWithThisAttribute())
             {
+                if (attr.InitPage)
+                {
+                    _initPageAddress = attr.Address;
+                }
                 var factory = (ITabFactory?)Activator.CreateInstance(attr.FactoryType);
                 if (factory is null)
                 {
@@ -80,7 +84,7 @@ public partial class MainForm : Form
         _webView.CoreWebView2.Settings.IsStatusBarEnabled = false;
 
         await _asyncLoadTask;
-        _webView.CoreWebView2.Navigate("https://app.localhost/chat/index.html");
+        _webView.CoreWebView2.Navigate("https://app.localhost" + _initPageAddress);
     }
 
     private void _webView_NavigationCompleted(object? sender, CoreWebView2NavigationCompletedEventArgs e)

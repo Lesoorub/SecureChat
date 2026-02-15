@@ -11,11 +11,16 @@ using System.Text.Json.Serialization;
 using System.Security.Cryptography;
 using SRP.Extra;
 using System;
+using SecureChat.Protocols.WebSockets.ServiceMessage;
+using System.Diagnostics;
+using System.Text.Json.Serialization.Metadata;
 
 namespace Backend.Controllers;
 
 public class Room : IDisposable
 {
+    const int MAX_SERVICE_MESSAGE_LEN = 256;
+
     private static readonly RecyclableMemoryStreamManager _streamManager = new RecyclableMemoryStreamManager();
 
     private readonly List<Member> _members = new();
@@ -61,7 +66,7 @@ public class Room : IDisposable
             member = new Member(ws);
             _members.Add(member);
         }
-        await Propogate(ws, token);
+        await Propogate(member, ws, token);
         lock (_syncRoot)
         {
             _members.Remove(member);
@@ -81,7 +86,7 @@ public class Room : IDisposable
             var sessionKey = await webSocket.AuthSrpAsServer(roomname, salt, verifier, cts.Token);
             return !string.IsNullOrWhiteSpace(sessionKey);
         }
-        catch (AuthSrpException srpEx)
+        catch (AuthSrpException)
         {
             return false;
         }
@@ -91,7 +96,7 @@ public class Room : IDisposable
         }
     }
 
-    async Task Propogate(WebSocket ws, CancellationToken token)
+    async Task Propogate(Member member, WebSocket ws, CancellationToken token)
     {
         byte[] buffer = ArrayPool<byte>.Shared.Rent(32 * 1024);
         // Получаем стрим из пула менеджера
@@ -101,7 +106,10 @@ public class Room : IDisposable
             while (ws.State == WebSocketState.Open && !token.IsCancellationRequested)
             {
                 await ReceiveMessage(ws, buffer, ms, token);
-                await BroadcastAsync(ms, ws);
+                if (!TryReadToServerMessage(ms, member))
+                {
+                    await BroadcastAsync(ms, ws);
+                }
             }
         }
         catch (OperationCanceledException)
@@ -126,6 +134,66 @@ public class Room : IDisposable
                 return;
             }
         }
+    }
+
+    private bool TryReadToServerMessage(RecyclableMemoryStream ms, Member sender)
+    {
+        var len = (int)(ms.Length - ms.Position);
+        if (len > MAX_SERVICE_MESSAGE_LEN || len <= 2)
+        {
+            return false; // Превышена максимальная длина служебного сообщения.
+        }
+        try
+        {
+            if (!IsJson(ms))
+            {
+                return false;
+            }
+            using var doc = JsonDocument.Parse(ms.GetReadOnlySequence());
+            if (!doc.RootElement.TryGetProperty("action", out var actionProp) || actionProp.ValueKind != JsonValueKind.String)
+            {
+                return false;
+            }
+            var action = actionProp.GetString() ?? throw new CantReadServiceMessage();
+            switch (action)
+            {
+                case MembersCountRequest.ACTION:
+                    Process(sender, doc.RootElement.Deserialize<MembersCountRequest>() ?? throw new CantReadServiceMessage());
+                    break;
+            }
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    public bool IsJson(RecyclableMemoryStream ms)
+    {
+        var sequence = ms.GetReadOnlySequence();
+        if (sequence.IsSingleSegment)
+        {
+            var span = sequence.FirstSpan;
+            return span.StartsWith("{"u8) && span.EndsWith("}"u8);
+        }
+        else
+        {
+            return IsJson(sequence);
+        }
+    }
+
+    public bool IsJson(ReadOnlySequence<byte> sequence)
+    {
+        if (sequence.IsEmpty) return false;
+
+        // Первый байт первого сегмента
+        byte first = sequence.First.Span[0];
+
+        // Универсальный способ для последнего байта:
+        byte universalLast = sequence.Slice(sequence.GetPosition(sequence.Length - 1)).First.Span[0];
+
+        return first == (byte)'{' && universalLast == (byte)'}';
     }
 
     public async Task BroadcastAsync(MemoryStream ms, WebSocket sender)
@@ -177,6 +245,20 @@ public class Room : IDisposable
         }
     }
 
+    #region SERVICE_MESSAGE_EVENTS
+
+    void Process(Member sender, MembersCountRequest request)
+    {
+        int count;
+        lock (_syncRoot)
+        {
+            count = _members.Count;
+        }
+        _ = sender.SendJsonSafeAsync(new MembersCountResponse { Count = count }, AppJsonContext.Default.MembersCountResponse);
+    }
+
+    #endregion
+
     public void Dispose()
     {
         lock (_syncRoot)
@@ -195,10 +277,63 @@ public class Room : IDisposable
     {
         public readonly WebSocket Socket;
         private readonly SemaphoreSlim _sendLock = new(1, 1);
+        private static readonly RecyclableMemoryStreamManager s_manager = new();
 
         public Member(WebSocket socket) => Socket = socket;
 
+        public async Task SendJsonSafeAsync<T>(T value) where T : notnull
+        {
+            // 1. Берем поток из пула
+            using var stream = s_manager.GetStream();
+
+            // 2. Сериализуем напрямую в UTF-8 поток
+            using (var writer = new Utf8JsonWriter((Stream)stream))
+            {
+                JsonSerializer.Serialize(writer, value);
+                writer.Flush(); // Обязательно сбрасываем буферы writer'а в поток
+            }
+
+            // 3. Получаем данные без копирования через GetReadOnlySequence()
+            // или GetBuffer() с указанием реальной длины
+            var buffer = new ArraySegment<byte>(stream.GetBuffer(), 0, (int)stream.Length);
+            await SendSafeAsync(buffer, true);
+        }
+
+        public async Task SendJsonSafeAsync<T>(T value, JsonTypeInfo<T> typeInfo) where T : notnull
+        {
+            using var stream = s_manager.GetStream();
+
+            using (var writer = new Utf8JsonWriter((Stream)stream))
+            {
+                // Используем перегрузку с JsonTypeInfo для Zero-Reflection
+                JsonSerializer.Serialize(writer, value, typeInfo);
+                writer.Flush();
+            }
+
+            var buffer = new ArraySegment<byte>(stream.GetBuffer(), 0, (int)stream.Length);
+            await SendSafeAsync(buffer, true);
+        }
+
         public async Task SendSafeAsync(ArraySegment<byte> data, bool endMessage)
+        {
+            if (Socket.State != WebSocketState.Open) return;
+
+            await _sendLock.WaitAsync();
+            try
+            {
+                if (Socket.State == WebSocketState.Open)
+                {
+                    await Socket.SendAsync(data, WebSocketMessageType.Binary, endMessage, CancellationToken.None);
+                }
+            }
+            catch { /* Логируем или игнорируем ошибки конкретного сокета */ }
+            finally
+            {
+                _sendLock.Release();
+            }
+        }
+
+        public async Task SendSafeAsync(ReadOnlyMemory<byte> data, bool endMessage)
         {
             if (Socket.State != WebSocketState.Open) return;
 
@@ -224,17 +359,15 @@ public class Room : IDisposable
         }
     }
 
-    public class LogInRequest
-    {
-        [JsonPropertyName("clientEphemeralPublic")]
-        public string ClientEphemeralPublic { get; set; } = string.Empty;
-    }
+    class CantReadServiceMessage : Exception { }
 
-    public class LogInResponse
-    {
-        [JsonPropertyName("salt")]
-        public string Salt { get; set; } = string.Empty;
-        [JsonPropertyName("serverEphemeralPublic")]
-        public string ServerEphemeralPublic { get; set; } = string.Empty;
-    }
+}
+[JsonSourceGenerationOptions(
+    WriteIndented = false,
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+    PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
+[JsonSerializable(typeof(MembersCountRequest))]
+[JsonSerializable(typeof(MembersCountResponse))]
+internal partial class AppJsonContext : JsonSerializerContext
+{
 }

@@ -31,7 +31,6 @@ public class ChatController : ControllerBase
         }
     }
 
-
     [HttpGet]
     [Route("join")]
     public async Task Join(string roomname)
