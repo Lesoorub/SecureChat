@@ -1,5 +1,6 @@
 ﻿using System.Buffers;
 using System.Runtime.InteropServices;
+using Concentus;
 using Concentus.Enums;
 using Concentus.Structs;
 using NAudio.CoreAudioApi;
@@ -25,7 +26,7 @@ internal class AudioInput
     private BufferedWaveProvider _captureBuffer;
     private MediaFoundationResampler _captureResampler;
 
-    private readonly OpusEncoder _encoder;
+    private readonly IOpusEncoder _encoder;
     private readonly int _frameSize; // Кол-во семплов на 20мс
     private readonly byte[] _conversionBuffer; // Для PCM16
     private readonly byte[] _encodedBuffer;    // Для сжатого Opus
@@ -60,9 +61,8 @@ internal class AudioInput
 
         _waveIn.DataAvailable += HandleAudioData;
 
-
         // Настройка Opus (48кГц, 1 канал, низкая задержка)
-        _encoder = new OpusEncoder(networkFormat.SampleRate, networkFormat.Channels, OpusApplication.OPUS_APPLICATION_VOIP);
+        _encoder = OpusCodecFactory.CreateEncoder(networkFormat.SampleRate, networkFormat.Channels, OpusApplication.OPUS_APPLICATION_VOIP);
         _encoder.Bitrate = 32000; // 32 kbps — отлично для голоса
 
         //Рассчитываем размер фрейма (20мс — стандарт)
@@ -80,32 +80,39 @@ internal class AudioInput
 
     private void HandleAudioData(object? obj, WaveInEventArgs args)
     {
-        // 1. Сначала кладем сырые данные из WASAPI в буфер
-        _captureBuffer.AddSamples(args.Buffer, 0, args.BytesRecorded);
-
-        // 2. Рассчитываем, сколько байт в результирующем формате (PCM16) нам нужно вычитать
-        // Формула: Частота * Каналы * 2 (байта на sample) * 0.02 (20мс)
-        int bytesNeededForFrame = _networkFormat.AverageBytesPerSecond / 50;
-
-        // 3. Пока в буфере достаточно данных, чтобы после ресемплирования получить полный фрейм
-        // Важно: проверяем BufferedBytes именно у источника (_captureBuffer)
-        // Но так как частоты могут отличаться, лучше ориентироваться на возможности Read
-        while (CanReadFullFrame(bytesNeededForFrame))
+        try
         {
-            // Читаем из ресемплера (он сам заберет из _captureBuffer и сконвертирует)
-            int read = _captureResampler.Read(_conversionBuffer, 0, bytesNeededForFrame);
+            // 1. Сначала кладем сырые данные из WASAPI в буфер
+            _captureBuffer.AddSamples(args.Buffer, 0, args.BytesRecorded);
 
-            if (read == bytesNeededForFrame)
+            // 2. Рассчитываем, сколько байт в результирующем формате (PCM16) нам нужно вычитать
+            // Формула: Частота * Каналы * 2 (байта на sample) * 0.02 (20мс)
+            int bytesNeededForFrame = _networkFormat.AverageBytesPerSecond / 50;
+
+            // 3. Пока в буфере достаточно данных, чтобы после ресемплирования получить полный фрейм
+            // Важно: проверяем BufferedBytes именно у источника (_captureBuffer)
+            // Но так как частоты могут отличаться, лучше ориентироваться на возможности Read
+            while (CanReadFullFrame(bytesNeededForFrame))
             {
-                // Конвертируем byte[] в Span<short> без аллокаций для энкодера
-                ReadOnlySpan<short> pcmSpan = MemoryMarshal.Cast<byte, short>(_conversionBuffer);
+                // Читаем из ресемплера (он сам заберет из _captureBuffer и сконвертирует)
+                int read = _captureResampler.Read(_conversionBuffer, 0, bytesNeededForFrame);
 
-                // Сжатие (используя Concentus или аналоги)
-                int encodedLength = _encoder.Encode(pcmSpan, _frameSize, _encodedBuffer.AsSpan(), _encodedBuffer.Length);
+                if (read == bytesNeededForFrame)
+                {
+                    // Конвертируем byte[] в Span<short> без аллокаций для энкодера
+                    ReadOnlySpan<short> pcmSpan = MemoryMarshal.Cast<byte, short>(_conversionBuffer);
 
-                AudioData?.Invoke(new ArraySegment<byte>(_encodedBuffer, 0, encodedLength));
+                    // Сжатие (используя Concentus или аналоги)
+                    int encodedLength = _encoder.Encode(pcmSpan, _frameSize, _encodedBuffer.AsSpan(), _encodedBuffer.Length);
+
+                    AudioData?.Invoke(new ArraySegment<byte>(_encodedBuffer, 0, encodedLength));
+                }
+                else break;
             }
-            else break;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Encode error: {ex}");
         }
     }
 

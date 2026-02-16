@@ -1,4 +1,5 @@
 ﻿using System.Runtime.InteropServices;
+using Concentus;
 using Concentus.Structs;
 using NAudio.CoreAudioApi;
 using NAudio.Wave;
@@ -19,7 +20,7 @@ internal class AudioOutput : IDisposable
     private BufferedWaveProvider _waveProvider;
     private VolumeSampleProvider _outVolumeControl;
 
-    private readonly OpusDecoder _decoder;
+    private readonly IOpusDecoder _decoder;
     private readonly short[] _decodeBuffer; // Буфер для PCM16
     private readonly byte[] _pcmByteArray;  // Буфер для байтового представления PCM16
     private readonly int _frameSize;
@@ -38,7 +39,7 @@ internal class AudioOutput : IDisposable
         }
 
         // 1. Инициализация декодера (частота и каналы должны совпадать с энкодером)
-        _decoder = new OpusDecoder(networkFormat.SampleRate, networkFormat.Channels);
+        _decoder = OpusCodecFactory.CreateDecoder(networkFormat.SampleRate, networkFormat.Channels);
 
         // 2. Размер фрейма (20мс для 48кГц = 960 семплов)
         _frameSize = networkFormat.SampleRate / 50;
@@ -101,7 +102,7 @@ internal class AudioOutput : IDisposable
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Decode error: {ex.Message}");
+            Console.WriteLine($"Decode error: {ex}");
         }
         return false;
     }
