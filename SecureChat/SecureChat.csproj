@@ -35,7 +35,6 @@
 		<None Remove="wwwroot\pages\main\index.js" />
 		<None Remove="wwwroot\pages\main\style.css" />
 	</ItemGroup>
-
 	<ItemGroup>
 	  <ProjectReference Include="..\SecureChat.Protocols\SecureChat.Protocols.csproj" />
 	  <ProjectReference Include="..\SRP.Extra\SRP.Extra.csproj" />
