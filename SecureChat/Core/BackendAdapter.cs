@@ -1,4 +1,7 @@
-﻿using System.Net;
+﻿using System;
+using System.Buffers;
+using System.IO;
+using System.Net;
 using System.Net.Http;
 using System.Net.Http.Json;
 using System.Net.WebSockets;
@@ -49,6 +52,88 @@ internal class BackendAdapter
         });
         using var response = await _httpClient.PostAsync(uri, content);
         response.EnsureSuccessStatusCode();
+    }
+
+    public async Task<string> GetVersion()
+    {
+        var uri = new UriBuilder(ServerUrl)
+        {
+            Path = "/app/version",
+        }.Uri;
+
+        using var response = await _httpClient.GetAsync(uri);
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadAsStringAsync();
+    }
+    public struct DownloadProgress
+    {
+        public long ReadBytes;
+        public long TotalBytes;
+        public double Percent => TotalBytes > 0 ? (double)ReadBytes / TotalBytes * 100 : 0;
+    }
+
+    // Делегат для передачи структуры по ссылке (in)
+    public delegate void ProgressHandler(in DownloadProgress progress);
+
+    public async Task GetLatest(string filepath, ProgressHandler progress, CancellationToken ct = default)
+    {
+        var uri = new UriBuilder(ServerUrl) { Path = "/app/latest" }.Uri;
+
+        using var response = await _httpClient.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead, ct);
+        response.EnsureSuccessStatusCode();
+
+        long totalBytes = response.Content.Headers.ContentLength ?? -1L;
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(81920);
+        DownloadProgress progressInfo = new() { TotalBytes = totalBytes };
+
+        try
+        {
+            // Открываем поток внутри try, чтобы в случае чего гарантированно закрыть и удалить файл
+            using (var fs = new FileStream(filepath, FileMode.Create, FileAccess.Write, FileShare.None, 4096, true))
+            {
+                using var netStream = await response.Content.ReadAsStreamAsync(ct);
+                int read;
+                long totalRead = 0;
+
+                while ((read = await netStream.ReadAsync(buffer.AsMemory(), ct)) > 0)
+                {
+                    await fs.WriteAsync(buffer.AsMemory(0, read), ct);
+                    totalRead += read;
+                    progressInfo.ReadBytes = totalRead;
+                    progress?.Invoke(in progressInfo);
+                }
+            }
+        }
+        catch (Exception) when (CleanupFile(filepath))
+        {
+            // Этот блок никогда не выполнится из-за CleanupFile, 
+            // но исключение пробросится дальше (rethrow)
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
+        }
+        bool CleanupFile(string filepath)
+        {
+            try
+            {
+                if (File.Exists(filepath)) File.Delete(filepath);
+            }
+            catch { /* Игнорируем ошибки удаления */ }
+            return false; // Возвращаем false, чтобы catch не "поглотил" исключение
+        }
+    }
+
+    public async Task<string> GetLatestHashsum()
+    {
+        var uri = new UriBuilder(ServerUrl)
+        {
+            Path = "/app/checksum",
+        }.Uri;
+
+        using var response = await _httpClient.GetAsync(uri);
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadAsStringAsync();
     }
 
     public async Task<ChatSession> JoinChat(string roomname, string password)

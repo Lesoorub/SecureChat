@@ -60,7 +60,20 @@ window.api = {
     },
     initSettings: (url) => {
         serverInput.value = url;
+    },
+    setVersion: (serverVersion) => {
+        const currentVersion = "1.0.1"; // Версия текущей сборки клиента
+        document.getElementById("app-version").textContent = "v" + currentVersion;
+
+        if (serverVersion !== currentVersion) {
+            document.getElementById("update-link").classList.remove("hidden");
+        }
     }
+};
+
+document.getElementById("btn-download").onclick = (e) => {
+    e.preventDefault();
+    postToCSharp("DOWNLOAD_UPDATE");
 };
 
 // Настройки

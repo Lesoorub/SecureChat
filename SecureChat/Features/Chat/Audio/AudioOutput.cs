@@ -1,4 +1,6 @@
-﻿using NAudio.CoreAudioApi;
+﻿using System.Runtime.InteropServices;
+using Concentus.Structs;
+using NAudio.CoreAudioApi;
 using NAudio.Wave;
 using NAudio.Wave.SampleProviders;
 
@@ -17,6 +19,11 @@ internal class AudioOutput : IDisposable
     private BufferedWaveProvider _waveProvider;
     private VolumeSampleProvider _outVolumeControl;
 
+    private readonly OpusDecoder _decoder;
+    private readonly short[] _decodeBuffer; // Буфер для PCM16
+    private readonly byte[] _pcmByteArray;  // Буфер для байтового представления PCM16
+    private readonly int _frameSize;
+
     public AudioOutput(string? deviceId, WaveFormat networkFormat)
     {
         if (string.IsNullOrEmpty(deviceId))
@@ -29,6 +36,16 @@ internal class AudioOutput : IDisposable
             using var device = enumerator.GetDevice(deviceId);
             _waveOut = new WasapiOut(device, AudioClientShareMode.Shared, true, 100);
         }
+
+        // 1. Инициализация декодера (частота и каналы должны совпадать с энкодером)
+        _decoder = new OpusDecoder(networkFormat.SampleRate, networkFormat.Channels);
+
+        // 2. Размер фрейма (20мс для 48кГц = 960 семплов)
+        _frameSize = networkFormat.SampleRate / 50;
+
+        // 3. Подготовка буферов для декодирования
+        _decodeBuffer = new short[_frameSize * networkFormat.Channels];
+        _pcmByteArray = new byte[_decodeBuffer.Length * 2];
 
         _waveProvider = new BufferedWaveProvider(networkFormat)
         {
@@ -58,13 +75,33 @@ internal class AudioOutput : IDisposable
         _waveOut.Init(_outVolumeControl.ToWaveProvider()); // Инициализируем уже адаптированным провайдером
     }
 
-    public bool AddAudioData(ArraySegment<byte> buffer)
+    public bool AddAudioData(ArraySegment<byte> encodedBuffer)
     {
-        if (_waveProvider is not null)
+        try
         {
-            _waveProvider.AddSamples(buffer.Array, buffer.Offset, buffer.Count);
-            Console.WriteLine($"Buffered bytes: {_waveProvider.BufferedBytes}");
-            return true;
+            // 4. Декодирование Opus -> PCM16 (short[])
+            // Используем Span для исключения лишних копирований, если библиотека позволяет
+            int decodedSamples = _decoder.Decode(
+                in_data: encodedBuffer.AsSpan(),
+                out_pcm: _decodeBuffer,
+                frame_size: _frameSize, 
+                decode_fec: false
+            );
+
+            if (decodedSamples > 0)
+            {
+                // 5. Быстрое копирование short[] в byte[] для BufferedWaveProvider
+                // Используем MemoryMarshal для zero-allocation трансформации
+                var sourceBytes = MemoryMarshal.AsBytes(_decodeBuffer.AsSpan(0, decodedSamples));
+                sourceBytes.CopyTo(_pcmByteArray);
+
+                _waveProvider.AddSamples(_pcmByteArray, 0, sourceBytes.Length);
+                return true;
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Decode error: {ex.Message}");
         }
         return false;
     }

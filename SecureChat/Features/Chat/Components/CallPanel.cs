@@ -1,4 +1,5 @@
-﻿using System.Collections.Concurrent;
+﻿using System;
+using System.Collections.Concurrent;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using NAudio.CoreAudioApi;
@@ -16,7 +17,7 @@ internal class CallPanel : IDisposable
 
     private bool _micEnabled = false;
 
-    private static readonly WaveFormat s_networkFormat = WaveFormat.CreateIeeeFloatWaveFormat(16000, 1);
+    private static readonly WaveFormat s_networkFormat = new WaveFormat(16000, 16, 1);
     private AudioInput _audioInput;
     private AudioOutput _audioOutput;
 
@@ -150,8 +151,9 @@ function volumeChanged() {
         _tab.Send(new AudioMessage()
         {
             UserId = _myUserId,
-            Data = buffer,
+            Data = buffer.ToArray(), // Копируем на всякий
         });
+        Console.WriteLine($"Sended {buffer.Count} audio bytes");
     }
 
     private void TryDisableMic()
@@ -189,6 +191,7 @@ function volumeChanged() {
     /// <param name="request"></param>
     void Process(AudioMessage request)
     {
+        Console.WriteLine($"Received {request.Data.Count} audio bytes");
         if (request.UserId is not null && 
             _audioOutput is not null && 
             _audioOutput.AddAudioData(request.Data) && 

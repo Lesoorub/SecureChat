@@ -221,3 +221,24 @@ button:active:not(:disabled) {
 .modal-content .input-area {
     margin-bottom: 12px;
 }
+.version-tag {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    font-size: 12px;
+    color: #888;
+    font-family: -apple-system, sans-serif;
+    z-index: 100;
+}
+
+.download-link {
+    color: #0078d4;
+    text-decoration: none;
+    font-weight: 600;
+    cursor: pointer;
+    margin-left: 4px;
+}
+
+    .download-link:hover {
+        text-decoration: underline;
+    }

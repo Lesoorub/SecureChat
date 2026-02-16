@@ -28,6 +28,7 @@ internal class ChatPanel
             Username = _currentSession.Username,
         });
         AppendSystemMessage("Вы подключились");
+#if DEBUG
         AppendMessage(
             role: "user",
             text: "Не подтверженное",
@@ -51,6 +52,7 @@ internal class ChatPanel
         );
         AppendMessage(true, "Я", "Очень длинное сообщение. Очень длинное сообщение. Очень длинное сообщение. Очень длинное сообщение. Очень длинное сообщение. Очень длинное сообщение. Очень длинное сообщение. Очень длинное сообщение. Очень длинное сообщение. Очень длинное сообщение. Очень длинное сообщение. Очень длинное сообщение. Очень длинное сообщение. ");
         AppendMessage(false, "не Я", "Не мое сообщение");
+#endif
     }
 
     internal void AppendSystemMessage(string text)
