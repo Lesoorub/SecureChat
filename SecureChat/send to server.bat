@@ -28,7 +28,8 @@ if "%SSH_HOST%"=="" (
 
 echo Uploading to server...
 REM -batch подавляет интерактивные запросы, -pw передает пароль
-pscp -pw "%SSH_PASS%" -batch latest.7z %SSH_USER%@%SSH_HOST%:%REMOTE_PATH%
+pscp -pw "%SSH_PASS%" -batch latest.7z %SSH_USER%@%SSH_HOST%:%REMOTE_PATH%/Storage
+pscp -pw "%SSH_PASS%" -batch version.txt %SSH_USER%@%SSH_HOST%:%REMOTE_PATH%
 
 if %ERRORLEVEL% equ 0 (
     echo [SUCCESS] File sent!

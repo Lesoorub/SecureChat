@@ -14,11 +14,9 @@ function postToCSharp(action, data = {}) {
 }
 const actions = {
     set_mic_state: d => setMicState(d.value),
-    update_participants: d => updateParticipants(d.participants),
-    set_speaking: d => setSpeaking(d.userId, d.isSpeaking),
-    set_users_speaking: d => setUsersSpeaking(d.states),
     append_message: d => appendMessage(d.role, d.text, d.id, d.status, d.senderName),
-    update_message_status: d => updateMessageStatus(d.id, d.status)
+    update_message_status: d => updateMessageStatus(d.id, d.status),
+    sync_participants: d => syncParticipants(d.participants),
 };
 
 // Слушаем ответ от C#
@@ -90,6 +88,10 @@ function updateMessageStatus(id, status)
     // и Bootstrap вернет стандартный bg-primary
 }
 
+document.getElementById('back-to-main-btn').addEventListener('click', () => {
+    window.location.href = "https://app.localhost/pages/main/index.html";
+});
+
 sendBtn.onclick = function () {
     const text = messageInput.value.trim();
     if (text) {
@@ -154,55 +156,51 @@ function getInitials(name) {
         .substring(0, 2);
 }
 
-function updateParticipants(participants)
-{
+function syncParticipants(participants) {
     const list = document.getElementById('participants-list');
-    const template = document.getElementById('participant-template');
+    const currentIds = new Set(participants.map(p => `user-${p.Id}`));
 
-    list.innerHTML = '';
-
-    participants.forEach(p => {
-        const fragment = template.content.cloneNode(true);
-        const container = fragment.querySelector('.participant');
-        const avatar = fragment.querySelector('.avatar');
-        const nameLabel = fragment.querySelector('.participant-name');
-
-        container.id = `user-${p.id}`;
-        if (p.isSpeaking) container.classList.add('speaking');
-
-        // Генерируем цвет и инициалы
-        const bgColor = stringToColor(p.name);
-        const initials = getInitials(p.name);
-
-        // ВАЖНО: Удаляем стандартный серый класс Bootstrap, чтобы работал inline-style
-        avatar.classList.remove('bg-secondary');
-
-        // Устанавливаем цвет фона и текст
-        avatar.style.backgroundColor = bgColor;
-        avatar.style.color = '#fff'; // Всегда белый текст для контраста
-        avatar.textContent = initials;
-
-        nameLabel.textContent = p.name;
-
-        list.appendChild(fragment);
+    // 1. Удаляем тех, кто отключился
+    Array.from(list.children).forEach(el => {
+        if (!currentIds.has(el.id)) el.remove();
     });
-}
 
-// Вызов для индикации речи: setSpeaking('user_1', true)
-function setSpeaking(userId, isSpeaking)
-{
-    const el = document.getElementById(`user-${userId}`);
-    if (el) {
-        isSpeaking ? el.classList.add('speaking') : el.classList.remove('speaking');
-    }
-}
+    // 2. Добавляем новых или обновляем существующих
+    participants.forEach(p => {
+        let el = document.getElementById(`user-${p.Id}`);
 
-function setUsersSpeaking(states)
-{
-    Object.entries(states).forEach(([userId, isSpeaking]) => {
-        const el = document.getElementById(`user-${userId}`);
-        if (el) {
-            el.classList.toggle('speaking', isSpeaking);
+        if (!el) {
+            // Создаем элемент из шаблона, если его еще нет
+            const template = document.getElementById('participant-template');
+            const fragment = template.content.cloneNode(true);
+
+            // Находим корневой контейнер внутри фрагмента
+            el = fragment.querySelector('.participant');
+            el.id = `user-${p.Id}`;
+
+            const avatar = el.querySelector('.avatar');
+            const nameLabel = el.querySelector('.participant-name');
+
+            // --- Ваша логика отрисовки (как в updateParticipants) ---
+            const bgColor = stringToColor(p.Name);
+            const initials = getInitials(p.Name);
+
+            // Убираем мешающий класс Bootstrap
+            avatar.classList.remove('bg-secondary');
+
+            avatar.style.backgroundColor = bgColor;
+            avatar.style.color = '#fff';
+            avatar.textContent = initials;
+            nameLabel.textContent = p.Name;
+
+            list.appendChild(el);
+        }
+
+        // 3. Обновляем статус индикации голоса (без пересоздания элемента)
+        if (p.IsSpeaking) {
+            el.classList.add('speaking');
+        } else {
+            el.classList.remove('speaking');
         }
     });
 }
@@ -233,6 +231,11 @@ const toggleCallUI = (show) => {
     }, 150);
 };
 
-messageInput.onkeypress = (e) => { if (e.key === 'Enter') handleSend(); };
+messageInput.addEventListener('keydown', function (event) {
+    if (event.key === 'Enter') {
+        event.preventDefault(); // Чтобы страница не перезагружалась, если есть форма
+        sendBtn.click(); // Симулируем нажатие кнопки
+    }
+});
 
 window.onload = () => postToCSharp('get_history');

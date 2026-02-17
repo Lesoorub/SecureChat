@@ -6,13 +6,23 @@ namespace Backend.Controllers;
 [Route("app")]
 public class AppController : ControllerBase
 {
-    private const string VERSION = "1.0.0";
+    private const string FILE_VERSION = "version.txt";
     private const string FILE_NAME = "latest.7z";
     private const string FILE_PATH = "Storage/" + FILE_NAME;
     private const string CHECKSUM_PATH = FILE_PATH + ".checksum"; // Storage/latest.7z.checksum
 
+    private string GetVersionInternal()
+    {
+        if (!System.IO.File.Exists(FILE_VERSION))
+        {
+            return "1.0.0";
+        }
+
+        return System.IO.File.ReadAllText(FILE_VERSION);
+    }
+
     [HttpGet("version")]
-    public IActionResult GetVersion() => Ok(VERSION);
+    public IActionResult GetVersion() => Ok(GetVersionInternal());
 
     [HttpGet("latest")]
     public IActionResult DownloadLatest()
@@ -23,7 +33,7 @@ public class AppController : ControllerBase
             return NotFound("Файл обновления не найден.");
 
         var fs = new FileStream(fullPath, FileMode.Open, FileAccess.Read, FileShare.Read);
-        Response.Headers.TryAdd("X-App-Version", VERSION);
+        Response.Headers.TryAdd("X-App-Version", GetVersionInternal());
 
         return File(fs, "application/x-7z-compressed", FILE_NAME, enableRangeProcessing: true);
     }

@@ -8,6 +8,8 @@
     settingsModal = document.getElementById("settings-modal"),
     serverInput = document.getElementById("server-url-input");
 
+const currentVersion = "1.0.1"; // Версия текущей сборки клиента
+
 function postToCSharp(action, data = {}) {
     window.chrome?.webview && window.chrome.webview.postMessage({ action, ...data });
 }
@@ -62,7 +64,6 @@ window.api = {
         serverInput.value = url;
     },
     setVersion: (serverVersion) => {
-        const currentVersion = "1.0.0"; // Версия текущей сборки клиента
         document.getElementById("app-version").textContent = "v" + currentVersion;
 
         if (serverVersion !== currentVersion) {

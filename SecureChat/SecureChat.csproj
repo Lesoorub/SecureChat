@@ -1,7 +1,6 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
 	<PropertyGroup>
-		<OutputType>WinExe</OutputType>
 		<TargetFramework>net8.0-windows</TargetFramework>
 		<UseWPF>true</UseWPF>
 		<Nullable>enable</Nullable>
@@ -9,6 +8,16 @@
 		<ImplicitUsings>enable</ImplicitUsings>
 	</PropertyGroup>
 
+	<!-- Для Debug: Консольное приложение (Exe), чтобы видеть логи -->
+	<PropertyGroup Condition="'$(Configuration)' == 'Debug'">
+		<OutputType>Exe</OutputType>
+	</PropertyGroup>
+
+	<!-- Для Release: Оконное приложение (WinExe), чтобы консоль не открывалась -->
+	<PropertyGroup Condition="'$(Configuration)' == 'Release'">
+		<OutputType>WinExe</OutputType>
+	</PropertyGroup>
+	
 	<ItemGroup>
 		<PackageReference Include="Concentus" Version="2.2.2" />
 		<PackageReference Include="Konscious.Security.Cryptography.Argon2" Version="1.3.1" />

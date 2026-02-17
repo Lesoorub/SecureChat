@@ -23,9 +23,6 @@ internal partial class ChatTab : AbstractPage, IDisposable
     public delegate void MsgReceivedCallback(MemoryStream message);
     private readonly Dictionary<string, MsgReceivedCallback> _receiveMesgCallbacks = new();
 
-    public delegate void PostMsgCallback(JsonElement message);
-    private readonly Dictionary<string, PostMsgCallback> _postMsgCallbacks = new();
-
     public delegate void ServiceMsgCallback(JsonElement message);
     private readonly Dictionary<string, ServiceMsgCallback> _serviceMsgCallbacks = new();
 
@@ -44,11 +41,6 @@ internal partial class ChatTab : AbstractPage, IDisposable
         RegisterServiceCallback(MembersCountResponse.ACTION, x => MembersCount?.Invoke(x.Deserialize<MembersCountResponse>()?.Count ?? 0));
 
         InitializeActions();
-    }
-
-    public void RegisterNetCallback(string action, MsgReceivedCallback callback)
-    {
-        _receiveMesgCallbacks[action] = callback;
     }
 
     public void RegisterNetCallback<T>(string action, Action<T> callback)
@@ -117,7 +109,7 @@ internal partial class ChatTab : AbstractPage, IDisposable
             return;
         }
         using var doc = JsonDocument.Parse(decryptedMsgStream.GetReadOnlySequence());
-
+        //Console.WriteLine($"[Receive]{doc.RootElement}");
         if (doc.RootElement.TryGetProperty("action"u8, out var actionProp) &&
             actionProp.ValueKind == JsonValueKind.String)
         {
@@ -210,6 +202,7 @@ internal partial class ChatTab : AbstractPage, IDisposable
             return Task.CompletedTask;
         }
 
+        //Console.WriteLine($"[Send]{JsonSerializer.Serialize(value)}");
         return session.SendJsonEncodedAsync(value);
     }
 

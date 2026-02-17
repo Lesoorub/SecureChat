@@ -40,7 +40,7 @@ internal class CallPanel : IDisposable
     }
 
     private readonly ConcurrentDictionary<string/*username*/, DisplayedUser> _users = new();
-    private static readonly TimeSpan s_updateParticipantInterval = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan s_updateParticipantInterval = TimeSpan.FromSeconds(3);
 
     private readonly CancellationToken _cancellationToken;
 
@@ -83,59 +83,53 @@ function volumeChanged() {
 
     public void OnPageLoaded()
     {
-        // Поток отображения стипикеров.
-        Task.Run(async () =>
+        Task.Run(HeartbeatLoop);
+    }
+
+    private async Task HeartbeatLoop()
+    {
+        while (!_cancellationToken.IsCancellationRequested)
         {
-            var speakUpdateInterval = TimeSpan.FromMilliseconds(500);
-            while (!_cancellationToken.IsCancellationRequested)
+            try
             {
-                try
+                // 1. Запрашиваем актуальный список у сервера
+                await _tab.Send(new WhoIsThere());
+
+                var now = DateTime.UtcNow;
+                var myUsername = string.IsNullOrWhiteSpace(_currentSession.Username) ? "Вы" : _currentSession.Username;
+
+                // 2. Формируем список участников с их статусом речи
+                var participants = new List<object>();
+
+                // Добавляем себя
+                participants.Add(new
                 {
-                    var now = DateTime.UtcNow;
-                    SetUsersSpeaking(_users.Select(user =>
+                    Id = _myUserId,
+                    Name = myUsername,
+                    IsSpeaking = (now - _lastAudioDataSend) < TimeSpan.FromMilliseconds(800)
+                });
+
+                // Добавляем остальных (только живых)
+                foreach (var (id, user) in _users)
+                {
+                    if (now - user.LastPong < s_updateParticipantInterval * 2)
                     {
-                        return new UserSpeaking
+                        participants.Add(new
                         {
-                            UserId = user.Key,
-                            IsSpeaking = now - user.Value.LastSpeak < speakUpdateInterval * 2,
-                        };
-                    }));
-                }
-                catch (Exception ex)
-                {
-                    MessageBox.Show(ex.ToString());
-                }
-                finally
-                {
-                    await Task.Delay(speakUpdateInterval);
-                }
-            }
-        });
-        Task.Run(async () =>
-        {
-            var speakUpdateInterval = TimeSpan.FromMilliseconds(100);
-            bool lastState = false;
-            while (!_cancellationToken.IsCancellationRequested)
-            {
-                try
-                {
-                    var isSpeaking = DateTime.UtcNow - _lastAudioDataSend < speakUpdateInterval * 2;
-                    if (isSpeaking != lastState)
-                    {
-                        lastState = isSpeaking;
-                        SetSpeaking(userId: _myUserId, isSpeaking: lastState);
+                            Id = id,
+                            Name = user.Username,
+                            IsSpeaking = (now - user.LastSpeak) < TimeSpan.FromMilliseconds(800)
+                        });
                     }
                 }
-                catch (Exception ex)
-                {
-                    MessageBox.Show(ex.ToString());
-                }
-                finally
-                {
-                    await Task.Delay(speakUpdateInterval);
-                }
+
+                // 3. Отправляем ОДИН пакет данных
+                _tab.PostMessage(new { action = "sync_participants", participants = participants });
             }
-        });
+            catch { /* ignore */ }
+
+            await Task.Delay(500); // Оптимальный интервал для UI
+        }
     }
 
     #region UI_ACTIONS
@@ -153,7 +147,7 @@ function volumeChanged() {
             UserId = _myUserId,
             Data = buffer.ToArray(), // Копируем на всякий
         });
-        Console.WriteLine($"Sended {buffer.Count} audio bytes");
+        //Console.WriteLine($"Sended {buffer.Count} audio bytes");
     }
 
     private void TryDisableMic()
@@ -191,7 +185,7 @@ function volumeChanged() {
     /// <param name="request"></param>
     void Process(AudioMessage request)
     {
-        Console.WriteLine($"Received {request.Data.Count} audio bytes");
+        //Console.WriteLine($"Received {request.Data.Count} audio bytes");
         if (request.UserId is not null && 
             _audioOutput is not null && 
             _audioOutput.AddAudioData(request.Data) && 
@@ -210,7 +204,6 @@ function volumeChanged() {
         {
             var user = _users.GetOrAdd(request.UserId, x => new DisplayedUser(DateTime.UtcNow, request.Username));
             user.LastPong = DateTime.UtcNow;
-            UpdateParticipantsFromUsers();
         }
     }
 
@@ -241,7 +234,6 @@ function volumeChanged() {
         {
             var user = _users.GetOrAdd(request.UserId, x => new DisplayedUser(DateTime.UtcNow, request.Username));
             user.LastPong = DateTime.UtcNow;
-            UpdateParticipantsFromUsers();
         }
     }
 
@@ -307,7 +299,6 @@ function volumeChanged() {
             Username = _currentSession.Username,
         });
         EnableSpeaker();
-        UpdateParticipantsFromUsers();
         EnableUpdateParticipant();
     }
 
@@ -379,18 +370,14 @@ function volumeChanged() {
             {
                 try
                 {
-                    _tab.Send(new WhoIsThere());
+                    await _tab.Send(new WhoIsThere());
                     await Task.Delay(s_updateParticipantInterval);
-                    UpdateParticipantsFromUsers();
                 }
                 catch (Exception ex)
                 {
 #if DEBUG
                     MessageBox.Show(ex.ToString());
 #endif
-                }
-                finally
-                {
                     await Task.Delay(TimeSpan.FromSeconds(1));
                 }
             }
@@ -407,23 +394,6 @@ function volumeChanged() {
         }
     }
 
-    void UpdateParticipantsFromUsers()
-    {
-        var myusername = string.IsNullOrWhiteSpace(_currentSession.Username) ? "Вы" : _currentSession.Username;
-        var list = new List<Participant> {
-            new() { Id = _myUserId, Name = myusername },
-        };
-        var now = DateTime.UtcNow;
-        foreach (var (userId, user) in _users.OrderBy(x => x.Key))
-        {
-            if (now - user.LastPong < s_updateParticipantInterval * 2) // Если ответ был меньше чем два интервала опроса.
-            {
-                list.Add(new() { Id = userId, Name = user.Username });
-            }
-        }
-        UpdateParticipants(new ParticipantsUpdate { Participants = list });
-    }
-
     void SetMicState(bool state)
     {
         _tab.PostMessage(new { action = "set_mic_state", value = state });
@@ -432,24 +402,6 @@ function volumeChanged() {
     void FillAudioDevices(List<AudioDevice> captureDevices, List<AudioDevice> renderDevices)
     {
         _tab.PostMessage(new { action = "fill_audio_devices", mics = captureDevices, speakers = renderDevices });
-    }
-
-    void UpdateParticipants(ParticipantsUpdate participantsData)
-    {
-        _tab.PostMessage(new { action = "update_participants", participants = participantsData.Participants });
-    }
-
-    void SetSpeaking(string userId, bool isSpeaking)
-    {
-        _tab.PostMessage(new { action = "set_speaking", userId = userId, isSpeaking = isSpeaking });
-    }
-
-    void SetUsersSpeaking(IEnumerable<UserSpeaking> speakingList)
-    {
-        // Превращаем список в словарь { "userId": isSpeaking }
-        var states = speakingList.ToDictionary(x => x.UserId, x => x.IsSpeaking);
-
-        _tab.PostMessage(new { action = "set_users_speaking", states = states });
     }
 
     public void ShowCallPanel()

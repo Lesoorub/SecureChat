@@ -16,7 +16,11 @@ internal class CurrentSession
 
     public void Reset()
     {
-        Session = null;
+        if (Session is not null)
+        {
+            Session.Dispose();
+            Session = null;
+        }
         Username = string.Empty;
     }
 }

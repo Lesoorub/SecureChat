@@ -58,8 +58,10 @@ public partial class MainForm : Form
         _webView.NavigationStarting += _webView_NavigationStarting;
         _webView.NavigationCompleted += _webView_NavigationCompleted;
 
+        // Отключает навигацию через жесты и спец. кнопки мыши
         _webView.CoreWebView2.Settings.IsGeneralAutofillEnabled = false;
         _webView.CoreWebView2.Settings.IsPasswordAutosaveEnabled = false;
+        _webView.CoreWebView2.Settings.IsSwipeNavigationEnabled = false;
 
         _webView.CoreWebView2.Settings.IsStatusBarEnabled = false;
 
@@ -68,11 +70,22 @@ public partial class MainForm : Form
 
     private void _webView_NavigationCompleted(object? sender, CoreWebView2NavigationCompletedEventArgs e)
     {
+        if (e.WebErrorStatus == CoreWebView2WebErrorStatus.OperationCanceled)
+        {
+            return;
+        }
+
         _currentPage?.PageLoaded();
     }
 
     private void _webView_NavigationStarting(object? sender, CoreWebView2NavigationStartingEventArgs e)
     {
+        if (e.NavigationKind != CoreWebView2NavigationKind.NewDocument)
+        {
+            e.Cancel = true;
+            return;
+        }
+
         (_currentPage as IDisposable)?.Dispose();
 
         var uri = new Uri(e.Uri);
