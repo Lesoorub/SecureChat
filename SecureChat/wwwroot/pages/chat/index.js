@@ -205,6 +205,10 @@ function syncParticipants(participants) {
     });
 }
 
+function specialAction(actionType) {
+    postToCSharp(actionType, {});
+}
+
 function setMicState(state)
 {
     micBtn.classList.remove('active');

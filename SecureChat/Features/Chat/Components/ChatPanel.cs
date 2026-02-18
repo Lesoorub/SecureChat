@@ -1,4 +1,7 @@
-﻿using System.Text.Json.Serialization;
+﻿using System.IO;
+using System.Media;
+using System.Reflection;
+using System.Text.Json.Serialization;
 using Org.BouncyCastle.Tls;
 using SecureChat.Core;
 using SecureChat.Core.Attributes;
@@ -19,6 +22,8 @@ internal class ChatPanel
         tab.RegisterNetCallback<Message>("msg", Process);
         tab.RegisterNetCallback<ConfirmMessage>("confirm_msg", Process);
         tab.RegisterNetCallback<UserConnected>("user_connected", Process);
+        tab.RegisterNetCallback<WhereAreYou>(WhereAreYou.ACTION, Process);
+        tab.RegisterNetCallback<VoicePing>(VoicePing.ACTION, Process);
     }
 
     public void PageLoaded()
@@ -122,8 +127,22 @@ internal class ChatPanel
         //}
     }
 
+    [JsAction("voice_ping")]
+    internal void ProcessVoicePing(VoicePing request)
+    {
+        PlayVoicePing();
+        _tab.Send(new VoicePing());
+    }
+
+    [JsAction("where_are_you")]
+    internal void ProcessWhereAreYou(WhereAreYou request)
+    {
+        _tab.Send(new WhereAreYou());
+    }
+
     void Process(Message msg)
     {
+        PlayNewMessage();
         AppendMessage(false, msg.Username, msg.Text);
         _tab.Send(new ConfirmMessage
         {
@@ -139,6 +158,35 @@ internal class ChatPanel
     void Process(UserConnected userConnected)
     {
         AppendSystemMessage($"Пользователь \"{userConnected.Username}\" подключился");
+    }
+
+    void Process(WhereAreYou request)
+    {
+        Task.Run(() =>
+        {
+            MessageBox.Show("Ты тут?");
+        });
+    }
+
+    void Process(VoicePing voicePing)
+    {
+        PlayVoicePing();
+    }
+
+    void PlayNewMessage()
+    {
+        using (SoundPlayer player = new SoundPlayer(Path.Combine(Directory.GetCurrentDirectory(), @"wwwroot/assets/delivered-message-sound.wav")))
+        {
+            player.Play(); // Асинхронное воспроизведение
+        }
+    }
+
+    void PlayVoicePing()
+    {
+        using (SoundPlayer player = new SoundPlayer(Path.Combine(Directory.GetCurrentDirectory(), @"wwwroot/assets/calm-sound-of-the-appearance-in-the-system.wav")))
+        {
+            player.Play(); // Асинхронное воспроизведение
+        }
     }
 
     public class Message
@@ -178,5 +226,21 @@ internal class ChatPanel
 
         [JsonPropertyName("username")]
         public string Username { get; set; } = string.Empty;
+    }
+
+    public class WhereAreYou
+    {
+        public const string ACTION = "where_are_you";
+
+        [JsonPropertyName("action")]
+        public string Action { get; set; } = ACTION;
+    }
+
+    public class VoicePing
+    {
+        public const string ACTION = "voice_ping";
+
+        [JsonPropertyName("action")]
+        public string Action { get; set; } = ACTION;
     }
 }

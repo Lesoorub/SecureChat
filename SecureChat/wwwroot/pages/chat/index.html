@@ -40,11 +40,29 @@
             </div>
 
             <!-- Ввод сообщения -->
-            <footer class="input-area p-3 bg-white border-top flex-shrink-0">
+            <footer class="bg-white flex-shrink-0 border-top input-area p-3">
                 <div class="input-group">
-                    <input type="text" id="message-input" class="form-control rounded-pill me-2" placeholder="Введите сообщение..." autofocus>
-                    <button id="send-btn" class="btn btn-primary rounded-circle d-flex align-items-center justify-content-center" style="width: 45px; height: 45px;">
-                        <svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"></path></svg>
+                    <!-- Кнопка действий -->
+                    <div class="dropdown">
+                        <button class="btn btn-outline-primary rounded-circle me-2 d-flex align-items-center justify-content-center"
+                                type="button"
+                                id="actionsMenu"
+                                data-bs-toggle="dropdown"
+                                data-bs-auto-close="outside"
+                                aria-expanded="false"
+                                style="width:45px;height:45px">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                        </button>
+                        <ul class="dropdown-menu shadow-sm" aria-labelledby="actionsMenu">
+                            <li><a class="dropdown-item" href="#" onclick="specialAction('where_are_you')">🙋‍♂️ Ты тут?</a></li>
+                            <li><a class="dropdown-item" href="#" onclick="specialAction('voice_ping')">🤫 Псс...</a></li>
+                        </ul>
+                    </div>
+
+                    <input class="form-control me-2 rounded-pill" id="message-input" placeholder="Введите сообщение..." autofocus>
+
+                    <button class="btn rounded-circle align-items-center btn-primary d-flex justify-content-center" id="send-btn" style="width:45px;height:45px">
+                        <svg height="20" viewBox="0 0 24 24" width="20"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" fill="currentColor"></path></svg>
                     </button>
                 </div>
             </footer>
