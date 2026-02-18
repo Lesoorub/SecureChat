@@ -29,6 +29,8 @@
         private void InitializeComponent()
         {
             _webView = new Microsoft.Web.WebView2.WinForms.WebView2();
+            _openFileDialog = new OpenFileDialog();
+            _saveFileDialog = new SaveFileDialog();
             ((System.ComponentModel.ISupportInitialize)_webView).BeginInit();
             SuspendLayout();
             // 
@@ -43,6 +45,10 @@
             _webView.Size = new Size(639, 712);
             _webView.TabIndex = 0;
             _webView.ZoomFactor = 1D;
+            // 
+            // _openFileDialog
+            // 
+            _openFileDialog.FileName = "openFileDialog1";
             // 
             // MainForm
             // 
@@ -59,5 +65,7 @@
         #endregion
 
         private Microsoft.Web.WebView2.WinForms.WebView2 _webView;
+        private OpenFileDialog _openFileDialog;
+        private SaveFileDialog _saveFileDialog;
     }
 }

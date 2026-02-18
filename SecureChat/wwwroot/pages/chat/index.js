@@ -6,6 +6,14 @@ const callStartBtn = document.getElementById('call-start-btn');
 const micBtn = document.getElementById('mic-btn');
 const settingsBtn = document.getElementById('settings-btn');
 const hangupBtn = document.getElementById('hangup-btn');
+const attachBtn = document.getElementById('attach-btn');
+
+let currentAttachment = { data: null, type: null, name: null };
+
+const ICONS = {
+    image: '<svg class="me-2" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>',
+    file: '<svg class="me-2" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><polyline points="13 2 13 9 20 9"></polyline></svg>'
+};
 
 function postToCSharp(action, data = {}) {
     if (window.chrome && window.chrome.webview) {
@@ -14,9 +22,10 @@ function postToCSharp(action, data = {}) {
 }
 const actions = {
     set_mic_state: d => setMicState(d.value),
-    append_message: d => appendMessage(d.role, d.text, d.id, d.status, d.senderName),
+    append_message: d => appendMessage(d.role, d.text, d.id, d.status, d.senderName, d.imageUrl),
     update_message_status: d => updateMessageStatus(d.id, d.status),
     sync_participants: d => syncParticipants(d.participants),
+    set_attachment: d => setAttachment(d.base64Data, d.fileName, d.isImage)
 };
 
 // Слушаем ответ от C#
@@ -26,7 +35,30 @@ window.chrome.webview.addEventListener('message', event => {
     actions[data.action]?.(data);
 });
 
-function appendMessage(role, text, id = null, status = 'sent', senderName = 'Бот')
+window.addEventListener('paste', async (event) => {
+    const items = (event.clipboardData || event.originalEvent.clipboardData).items;
+
+    for (const item of items) {
+        // Проверяем, является ли вставленный объект изображением
+        if (item.type.indexOf('image') !== -1) {
+            const blob = item.getAsFile();
+            const reader = new FileReader();
+
+            reader.onload = (e) => {
+                // Используем новую универсальную функцию
+                // Параметры: base64, имя отображения, флаг "это картинка"
+                setAttachment(e.target.result, "Изображение", true);
+            };
+
+            reader.readAsDataURL(blob);
+
+            // Если вставили картинку, обычно текст вставлять не нужно
+            // event.preventDefault(); 
+        }
+    }
+});
+
+function appendMessage(role, text, id = null, status = 'sent', senderName = 'Бот', attachment = null)
 {
     const template = document.getElementById('message-template');
     const fragment = template.content.cloneNode(true);
@@ -39,6 +71,35 @@ function appendMessage(role, text, id = null, status = 'sent', senderName = 'Б�
 
     msgDiv.id = id || 'msg_' + Date.now();
     textSpan.textContent = text;
+
+    // --- Логика вложений ---
+    if (attachment && attachment.data) {
+        if (attachment.type === 'image') {
+            // Отрисовка картинки
+            const img = document.createElement('img');
+            img.src = attachment.data;
+            img.classList.add('img-fluid', 'rounded-3', 'mb-2');
+            img.style.maxHeight = '300px';
+            img.style.objectFit = 'contain';
+            img.style.display = 'block';
+            msgDiv.insertBefore(img, textSpan);
+        } else {
+            // Отрисовка файла (плашка с иконкой)
+            const fileBox = document.createElement('div');
+            fileBox.className = 'd-flex align-items-center p-2 mb-2 rounded bg-black bg-opacity-10 border border-white border-opacity-25';
+            fileBox.style.cursor = 'pointer';
+            fileBox.innerHTML = `
+                ${ICONS.file}
+                <small class="text-truncate" style="max-width: 150px;">${attachment.name}</small>
+            `;
+            // Опционально: клик по файлу для скачивания/открытия
+            fileBox.onclick = () =>
+            {
+                postToCSharp("try_open_loaded_file", { fileName: attachment.name });
+            };
+            msgDiv.insertBefore(fileBox, textSpan);
+        }
+    }
 
     if (role === 'system') {
         // Системное: по центру, жирное, без оформления
@@ -70,6 +131,32 @@ function appendMessage(role, text, id = null, status = 'sent', senderName = 'Б�
     messagesContainer.scrollTo({ top: messagesContainer.scrollHeight, behavior: 'smooth' });
 }
 
+// Универсальная функция прикрепления
+function setAttachment(base64Data, fileName, isImage) {
+    currentAttachment = { data: base64Data, type: isImage ? 'image' : 'file', name: fileName };
+
+    const container = document.getElementById('attachment-preview');
+    const label = document.getElementById('attachment-label');
+    const badge = document.querySelector('.image-badge');
+
+    // Меняем иконку и текст (обрезаем длинные имена файлов)
+    const displayName = fileName.length > 20 ? fileName.substring(0, 17) + '...' : fileName;
+    label.innerHTML = (isImage ? ICONS.image : ICONS.file) + displayName;
+
+    // Стилизуем под файл, если это не картинка
+    isImage ? badge.classList.remove('file-badge') : badge.classList.add('file-badge');
+
+    container.classList.remove('d-none');
+    setTimeout(() => container.style.opacity = "1", 10);
+}
+
+function clearAttachment() {
+    currentAttachment = { data: null, type: null, name: null };
+    const container = document.getElementById('attachment-preview');
+    container.style.opacity = "0";
+    setTimeout(() => container.classList.add('d-none'), 200);
+}
+
 function updateMessageStatus(id, status)
 {
     const msg = document.getElementById(id);
@@ -94,17 +181,21 @@ document.getElementById('back-to-main-btn').addEventListener('click', () => {
 
 sendBtn.onclick = function () {
     const text = messageInput.value.trim();
-    if (text) {
+    // Разрешаем отправку, если есть либо текст, либо вложение
+    if (text || currentAttachment.data) {
         const tempId = 'msg_' + Date.now();
-        // Добавляем сообщение со статусом 'pending'
-        appendMessage('user', text, tempId, 'pending');
+
+        // Передаем весь объект вложения
+        appendMessage('user', text, tempId, 'pending', 'Вы', currentAttachment);
 
         postToCSharp('send_message', {
             text: text,
-            id: tempId
+            id: tempId,
+            attachment: currentAttachment // Отправляем объект {data, type, name}
         });
 
         messageInput.value = '';
+        clearAttachment();
     }
 };
 
@@ -241,5 +332,11 @@ messageInput.addEventListener('keydown', function (event) {
         sendBtn.click(); // Симулируем нажатие кнопки
     }
 });
+
+attachBtn.onclick = function handleAttachClick() {
+    // Отправляем сообщение в C# через PostMessage
+    // Если ваш IWebView поддерживает PostMessage:
+    postToCSharp('open_file_dialog');
+}
 
 window.onload = () => postToCSharp('get_history');

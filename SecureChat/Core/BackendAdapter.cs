@@ -7,6 +7,7 @@ using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json.Serialization;
 using Konscious.Security.Cryptography;
+using Microsoft.IO;
 using SecureChat.Core.Attributes;
 using SecureRemotePassword;
 using SRP.Extra;
@@ -24,10 +25,12 @@ internal class BackendAdapter
 #endif
 
     private readonly HttpClient _httpClient;
+    private readonly RecyclableMemoryStreamManager _streamManager;
 
-    public BackendAdapter(HttpClient httpClient)
+    public BackendAdapter(HttpClient httpClient, RecyclableMemoryStreamManager streamManager)
     {
         _httpClient = httpClient;
+        _streamManager = streamManager;
     }
 
     // HTTP-запрос для создания комнаты
@@ -154,7 +157,7 @@ internal class BackendAdapter
         {
             await ws.AuthSrpAsClient(roomname, password);
         }
-        return new ChatSession(ws, await DeriveKeyAsync(password, roomname));
+        return new ChatSession(ws, await DeriveKeyAsync(password, roomname), _streamManager);
     }
 
     public async Task<byte[]> DeriveKeyAsync(string password, string roomName)

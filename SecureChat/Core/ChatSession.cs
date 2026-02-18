@@ -12,7 +12,7 @@ public class ChatSession : IDisposable
     private readonly ClientWebSocket _ws;
     private readonly SemaphoreSlim _sendLock = new(1, 1);
     private readonly CancellationTokenSource _cts = new();
-    private static readonly RecyclableMemoryStreamManager s_streamManager = new();
+    private readonly RecyclableMemoryStreamManager _streamManager;
 
     // Длина Nonce (12 байт) и Tag (16 байт) фиксированы для AES-GCM
     private const int NONCE_SIZE = 12;
@@ -22,16 +22,17 @@ public class ChatSession : IDisposable
 
     private byte[] _sharedKey;
 
-    public ChatSession(ClientWebSocket ws, byte[] sharedKey)
+    public ChatSession(ClientWebSocket ws, byte[] sharedKey, RecyclableMemoryStreamManager manager)
     {
         _ws = ws;
         _sharedKey = sharedKey;
+        _streamManager = manager;
     }
 
     public async Task SendJsonAsync<T>(T value) where T : notnull
     {
         // 1. Берем поток из пула
-        using var stream = s_streamManager.GetStream();
+        using var stream = _streamManager.GetStream();
 
         // 2. Сериализуем напрямую в UTF-8 поток
         using (var writer = new Utf8JsonWriter((Stream)stream))
@@ -57,7 +58,7 @@ public class ChatSession : IDisposable
     public async Task SendJsonEncodedAsync<T>(T value) where T : notnull
     {
         // 1. Сериализуем во временный поток
-        using var plainStream = s_streamManager.GetStream("Serialization");
+        using var plainStream = _streamManager.GetStream("Serialization");
         using (var writer = new Utf8JsonWriter((Stream)plainStream))
         {
             JsonSerializer.Serialize(writer, value);
@@ -152,7 +153,7 @@ public class ChatSession : IDisposable
     public async Task<RecyclableMemoryStream> ReceiveFullMessageAsStreamAsync()
     {
         // 1. Берем поток из менеджера (вызывающий код ДОЛЖЕН сделать ему Dispose)
-        var ms = s_streamManager.GetStream();
+        var ms = _streamManager.GetStream();
         var buffer = ArrayPool<byte>.Shared.Rent(32 * 1024);
 
         try
@@ -194,7 +195,7 @@ public class ChatSession : IDisposable
         int totalSize = NONCE_SIZE + TAG_SIZE + payloadSize;
 
         // Берем новый поток для зашифрованных данных
-        var outputStream = s_streamManager.GetStream("EncryptionOutput", totalSize);
+        var outputStream = _streamManager.GetStream("EncryptionOutput", totalSize);
 
         // Резервируем место в потоке (важно для получения Span)
         outputStream.SetLength(totalSize);
@@ -231,7 +232,7 @@ public class ChatSession : IDisposable
         byte[] inputBuffer = encryptedStream.GetBuffer();
 
         // 3. Создаем целевой поток для расшифрованных данных
-        var resultStream = (RecyclableMemoryStream)s_streamManager.GetStream();
+        var resultStream = (RecyclableMemoryStream)_streamManager.GetStream();
 
         try
         {

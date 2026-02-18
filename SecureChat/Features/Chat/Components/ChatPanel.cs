@@ -1,11 +1,11 @@
-﻿using System.IO;
+﻿using System.Collections.Concurrent;
+using System.IO;
 using System.Media;
-using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Text.Json.Serialization;
-using Org.BouncyCastle.Tls;
+using Microsoft.IO;
 using SecureChat.Core;
 using SecureChat.Core.Attributes;
-using static System.Windows.Forms.VisualStyles.VisualStyleElement;
 
 namespace SecureChat.Features.Chat.Components;
 
@@ -13,17 +13,23 @@ internal class ChatPanel
 {
     private readonly ChatTab _tab;
     private readonly CurrentSession _currentSession;
+    private readonly RecyclableMemoryStreamManager _streamManager;
 
-    public ChatPanel(ChatTab tab, CurrentSession currentSession)
+    private readonly ConcurrentDictionary<string, FileInfo> _uploadedFiles = new();
+
+    public ChatPanel(ChatTab tab, CurrentSession currentSession, RecyclableMemoryStreamManager manager)
     {
         _tab = tab;
         _currentSession = currentSession;
+        _streamManager = manager;
 
         tab.RegisterNetCallback<Message>("msg", Process);
         tab.RegisterNetCallback<ConfirmMessage>("confirm_msg", Process);
         tab.RegisterNetCallback<UserConnected>("user_connected", Process);
         tab.RegisterNetCallback<WhereAreYou>(WhereAreYou.ACTION, Process);
         tab.RegisterNetCallback<VoicePing>(VoicePing.ACTION, Process);
+        tab.RegisterNetCallback<LoadFileRequest>(LoadFileRequest.ACTION, Process);
+        tab.RegisterNetCallback<LoadFileResponse>(LoadFileResponse.ACTION, Process);
     }
 
     public void PageLoaded()
@@ -65,12 +71,12 @@ internal class ChatPanel
         AppendMessage("system", text, string.Empty, string.Empty, string.Empty);
     }
 
-    internal void AppendMessage(bool isMe, string who, string text)
+    internal void AppendMessage(bool isMe, string who, string text, Attachment? attachment = null)
     {
-        AppendMessage(isMe ? "user" : "bot", text, Environment.TickCount64.ToString(), isMe ? "pending" : "sent", who);
+        AppendMessage(isMe ? "user" : "bot", text, Environment.TickCount64.ToString(), isMe ? "pending" : "sent", who, attachment);
     }
 
-    internal void AppendMessage(string role, string text, string id, string status, string senderName)
+    internal void AppendMessage(string role, string text, string id, string status, string senderName, Attachment? imageUrl = null)
     {
         _tab.PostMessage(new
         {
@@ -79,7 +85,8 @@ internal class ChatPanel
             text = text,
             id = id,
             status = status,
-            senderName = senderName
+            senderName = senderName,
+            imageUrl = imageUrl
         });
     }
 
@@ -91,19 +98,39 @@ internal class ChatPanel
     public class SendMessage
     {
         [JsonPropertyName("id")]
-        public string MessageId { get; set; } = string.Empty;
+        public string? MessageId { get; set; }
         [JsonPropertyName("text")]
-        public string Text { get; set; } = string.Empty;
+        public string? Text { get; set; }
+        [JsonPropertyName("attachment")]
+        public Attachment? Attachment { get; set; }
+    }
+
+    public class Attachment
+    {
+        [JsonPropertyName("data")]
+        public string? Data { get; set; }
+        [JsonPropertyName("type")]
+        public string? Type { get; set; }
+        [JsonPropertyName("name")]
+        public string? Name { get; set; }
     }
 
     [JsAction("send_message")]
     internal void Process(SendMessage request)
     {
+        if (string.IsNullOrWhiteSpace(request.MessageId) ||
+            string.IsNullOrWhiteSpace(_currentSession.Username) ||
+            string.IsNullOrWhiteSpace(request.Text))
+        {
+            return;
+        }
+
         _tab.Send(new Message
         {
             MessageId = request.MessageId,
             Username = _currentSession.Username,
-            Text = request.Text
+            Text = request.Text,
+            Attachment = request.Attachment
         });
     }
 
@@ -113,18 +140,8 @@ internal class ChatPanel
     }
 
     [JsAction("get_history")]
-    internal void Process(GetHistory _)
+    internal void Process(GetHistory request)
     {
-        // 1. Получаете данные из БД или сервиса
-        var history = new[] {
-            new { role = "bot", text = "История загружена" },
-            new { role = "user", text = "Отлично!" }
-        };
-
-        //// 2. Отправляете каждое сообщение в JS
-        //foreach (var msg in history)
-        //{
-        //}
     }
 
     [JsAction("voice_ping")]
@@ -140,14 +157,96 @@ internal class ChatPanel
         _tab.Send(new WhereAreYou());
     }
 
+    internal record OpenFileDialogJsAction();
+
+    [JsAction("open_file_dialog")]
+    internal void ProcessOpenSelectFileDialog(OpenFileDialogJsAction request)
+    {
+        Task.Run(async () =>
+        {
+            FileInfo? fileInfo = await _tab.WebView.OpenFileDialog();
+            if (fileInfo is null)
+            {
+                return;
+            }
+            var path = fileInfo.FullName;
+            bool isImage = path.EndsWith(".png") || path.EndsWith(".jpg") || path.EndsWith(".raw") || path.EndsWith(".webp") || path.EndsWith(".bmp");
+            if (isImage)
+            {
+                using var stream = _streamManager.GetStream();
+                using var fs = fileInfo.OpenRead();
+                await fs.CopyToAsync(stream);
+
+                _tab.PostMessage(new
+                {
+                    action = "set_attachment",
+                    base64Data = Convert.ToBase64String(stream.GetBuffer()),
+                    fileName = Path.GetFileNameWithoutExtension(path),
+                    isImage = true,
+                });
+            }
+            else
+            {
+                var fileId = Guid.NewGuid().ToString();
+                _uploadedFiles[fileId] = fileInfo;
+                _tab.PostMessage(new
+                {
+                    action = "set_attachment",
+                    base64Data = fileId,
+                    fileName = Path.GetFileNameWithoutExtension(path),
+                    isImage = false,
+                });
+            }
+        });
+    }
+
+    internal record TryOpenLoadedFile([property:JsonPropertyName("fileName")] string FileName);
+
+    /// <summary>
+    /// Пытаемся открыть файл.
+    /// </summary>
+    /// <param name="request"></param>
+    [JsAction("try_open_loaded_file")]
+    internal void ProcessSaveFileDialogJsAction(TryOpenLoadedFile request)
+    {
+        if (request.FileName is null)
+        {
+            return;
+        }
+
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        {
+            string downloadsPath = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                "Downloads"
+            );
+
+            string filePath = Path.Combine(downloadsPath, request.FileName);
+
+            string argument = $"/select,\"{filePath}\"";
+            System.Diagnostics.Process.Start("explorer.exe", argument);
+        }
+        else
+        {
+            MessageBox.Show("Такое не поддерживается");
+        }
+    }
+
     void Process(Message msg)
     {
         PlayNewMessage();
-        AppendMessage(false, msg.Username, msg.Text);
+        AppendMessage(false, msg.Username, msg.Text, attachment: msg.Attachment);
         _tab.Send(new ConfirmMessage
         {
             MessageId = msg.MessageId,
         });
+        if (msg.Attachment is not null)
+        {
+            _tab.Send(new LoadFileRequest()
+            {
+                FileId = msg.Attachment.Data,
+            });
+        }
     }
 
     void Process(ConfirmMessage confirmMsg)
@@ -168,9 +267,53 @@ internal class ChatPanel
         });
     }
 
-    void Process(VoicePing voicePing)
+    void Process(VoicePing request)
     {
         PlayVoicePing();
+    }
+
+    void Process(LoadFileRequest request)
+    {
+        Task.Run(async () =>
+        {
+            if (request.FileId is not null && _uploadedFiles.TryGetValue(request.FileId, out var fileInfo))
+            {
+                using var stream = _streamManager.GetStream();
+                using var fs = fileInfo.OpenRead();
+                await fs.CopyToAsync(stream);
+                await _tab.Send(new LoadFileResponse()
+                {
+                    FileName = Path.GetFileNameWithoutExtension(fileInfo.Name),
+                    Payload = stream.GetBuffer()
+                });
+            }
+            else
+            {
+                await _tab.Send(new LoadFileResponse()
+                {
+                    Payload = null,
+                });
+            }
+        });
+    }
+
+    async void Process(LoadFileResponse request)
+    {
+        if (request.Payload is null || request.FileName is null)
+        {
+            MessageBox.Show("Ошибка при загрузке файла");
+            return;
+        }
+        string downloadsPath = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            "Downloads"
+        );
+
+        using var fs = new FileStream(Path.Combine(downloadsPath, request.FileName.Replace("/", string.Empty)), FileMode.CreateNew, FileAccess.Write);
+        await fs.WriteAsync(request.Payload.Value);
+        await fs.FlushAsync();
+        fs.Close();
+        // Файл получен.
     }
 
     void PlayNewMessage()
@@ -204,6 +347,9 @@ internal class ChatPanel
 
         [JsonPropertyName("text")]
         public string Text { get; set; } = string.Empty;
+
+        [JsonPropertyName("img")]
+        public Attachment? Attachment { get; set; }
     }
 
     public class ConfirmMessage
@@ -242,5 +388,30 @@ internal class ChatPanel
 
         [JsonPropertyName("action")]
         public string Action { get; set; } = ACTION;
+    }
+
+    public class LoadFileRequest
+    {
+        public const string ACTION = "load_file_request";
+
+        [JsonPropertyName("action")]
+        public string Action { get; set; } = ACTION;
+
+        [JsonPropertyName("file_id")]
+        public string? FileId { get; set; }
+    }
+
+    public class LoadFileResponse
+    {
+        public const string ACTION = "load_file_response";
+
+        [JsonPropertyName("action")]
+        public string Action { get; set; } = ACTION;
+
+        [JsonPropertyName("file_name")]
+        public string? FileName { get; set; }
+
+        [JsonPropertyName("file_data")]
+        public ArraySegment<byte>? Payload { get; set; }
     }
 }

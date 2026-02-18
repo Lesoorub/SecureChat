@@ -41,6 +41,18 @@
 
             <!-- Ввод сообщения -->
             <footer class="bg-white flex-shrink-0 border-top input-area p-3">
+                <!-- Контейнер предпросмотра -->
+                <div id="attachment-preview" class="d-none mt-1 mb-3">
+                    <div class="image-badge" id="badge-content">
+                        <span class="d-flex align-items-center" id="attachment-label">
+                            <!-- Иконка и текст вставятся через JS -->
+                        </span>
+                        <button type="button" class="btn-remove-image" title="Удалить" onclick="clearAttachment()">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                        </button>
+                    </div>
+                </div>
+
                 <div class="input-group">
                     <!-- Кнопка действий -->
                     <div class="dropdown">
@@ -60,6 +72,13 @@
                     </div>
 
                     <input class="form-control me-2 rounded-pill" id="message-input" placeholder="Введите сообщение..." autofocus>
+
+                    <!-- Кнопка прикрепить (Скрепка) -->
+                    <button class="btn btn-outline-secondary rounded-circle me-2 d-flex align-items-center justify-content-center"
+                            id="attach-btn"
+                            style="width:45px;height:45px; border: 1px solid #dee2e6;">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path></svg>
+                    </button>
 
                     <button class="btn rounded-circle align-items-center btn-primary d-flex justify-content-center" id="send-btn" style="width:45px;height:45px">
                         <svg height="20" viewBox="0 0 24 24" width="20"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" fill="currentColor"></path></svg>

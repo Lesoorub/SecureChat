@@ -2,6 +2,7 @@ using System.Media;
 using System.Net.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.IO;
 using SecureChat.Core.Attributes;
 using SecureChat.Infrastructure.DI;
 
@@ -18,6 +19,7 @@ internal static class Program
         var services = new ServiceCollection();
         services.AddLogging(builder => builder.AddDebug());
         // Регистрация зависимостей
+        services.AddSingleton(new RecyclableMemoryStreamManager());
         services.AddSingleton(new HttpClient());
         services.AddSingletonsFromAssembly();
         services.AddPageControllers();

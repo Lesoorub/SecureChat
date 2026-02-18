@@ -94,7 +94,7 @@ public partial class MainForm : Form
             _currentPage = (AbstractPage)ActivatorUtilities.CreateInstance(
                 _serviceProvider,
                 pageType,
-                new WebViewWrapper(_webView)
+                new WebViewWrapper(_webView, _openFileDialog, _saveFileDialog)
             );
         }
         else

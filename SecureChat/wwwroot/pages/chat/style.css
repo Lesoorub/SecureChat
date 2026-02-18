@@ -125,3 +125,50 @@ body, html {
     border-color: var(--bs-danger) !important;
     color: #fff !important;
 }
+.image-badge {
+    display: inline-flex;
+    align-items: center;
+    /* Прозрачный фон и тонкая граница */
+    background-color: transparent;
+    border: 1px solid #dee2e6;
+    color: #6c757d;
+    padding: 4px 16px;
+    border-radius: 50px; /* Полное скругление */
+    font-size: 0.85rem;
+    transition: all 0.2s ease;
+    cursor: default;
+}
+
+    /* Эффект при наведении на всю капсулу */
+    .image-badge:hover {
+        border-color: #0d6efd;
+        color: #0d6efd;
+    }
+
+.btn-remove-image {
+    background: none;
+    border: none;
+    color: inherit; /* Цвет как у текста кнопки */
+    margin-left: 10px;
+    padding: 0;
+    cursor: pointer;
+    font-size: 1.1rem;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+}
+
+    .btn-remove-image:hover {
+        color: #dc3545; /* Красный цвет при наведении на крестик */
+    }
+
+/* Плавное появление контейнера */
+#image-preview-container {
+    transition: opacity 0.3s ease;
+}
+/* Цвет для файлов (синий), в дополнение к серому для картинок */
+.file-badge {
+    border-color: #cfe2ff;
+    background-color: #f8f9fa;
+    color: #084298;
+}

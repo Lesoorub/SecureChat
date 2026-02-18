@@ -14,7 +14,7 @@ namespace SecureChat.Features.Chat;
 [Page("/pages/chat/index.html")]
 internal partial class ChatTab : AbstractPage, IDisposable
 {
-    private readonly IWebView _webView;
+    public readonly IWebView WebView;
     private readonly CurrentSession _currentSession;
 
     [SubHandler] private readonly ChatPanel _chatPanel;
@@ -30,12 +30,12 @@ internal partial class ChatTab : AbstractPage, IDisposable
 
     public event Action<int>? MembersCount;
 
-    public ChatTab(ILogger<ChatTab> logger, IWebView webView, CurrentSession currentSession)
+    public ChatTab(ILogger<ChatTab> logger, IWebView webView, CurrentSession currentSession, RecyclableMemoryStreamManager manager)
         : base(logger)
     {
-        _webView = webView;
+        WebView = webView;
         _currentSession = currentSession;
-        _chatPanel = new ChatPanel(this, currentSession);
+        _chatPanel = new ChatPanel(this, currentSession, manager);
         _callPanel = new CallPanel(this, currentSession, _cancellationTokenSource.Token);
 
         RegisterServiceCallback(MembersCountResponse.ACTION, x => MembersCount?.Invoke(x.Deserialize<MembersCountResponse>()?.Count ?? 0));
@@ -93,7 +93,7 @@ internal partial class ChatTab : AbstractPage, IDisposable
                     await Task.Delay(100);
                 }
             }
-            _webView.NavigateAsync("https://app.localhost/pages/main/index.html");
+            WebView.NavigateAsync("https://app.localhost/pages/main/index.html");
         }
         finally
         {
@@ -186,12 +186,12 @@ internal partial class ChatTab : AbstractPage, IDisposable
 
     internal void ExecuteScript(string script)
     {
-        _webView.ExecuteScriptAsync(script);
+        WebView.ExecuteScriptAsync(script);
     }
 
     internal void PostMessage(object data)
     {
-        _webView.PostMessage(data);
+        WebView.PostMessage(data);
     }
 
     internal Task Send<T>(T value) where T : notnull

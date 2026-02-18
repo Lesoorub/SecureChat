@@ -34,6 +34,7 @@ btnCreate.onclick = () => {
     if (data) {
         btnCreate.disabled = true;
         btnCreate.textContent = "Создание...";
+        saveWindowState()
         postToCSharp("CREATE_ROOM", data);
     }
 };
@@ -43,6 +44,7 @@ btnJoin.onclick = () => {
     if (data) {
         btnJoin.disabled = true;
         btnJoin.textContent = "Вход...";
+        saveWindowState()
         postToCSharp("JOIN_ROOM", data);
     }
 };
@@ -90,3 +92,29 @@ document.getElementById("btn-settings-save").onclick = () => {
 
 // Очистка ошибок при вводе
 [roomInput, passInput].forEach(el => el.oninput = () => errorDisplay.classList.add("hidden"));
+
+function saveWindowState() {
+    let username = userInput.value
+    if (username) {
+        localStorage.setItem("username", username);
+    }
+
+    let roomname = roomInput.value
+    if (roomname) {
+        localStorage.setItem("roomname", roomname);
+    }
+}
+
+function loadWindowState() {
+    let username = localStorage.getItem("username")
+    if (username) {
+        userInput.value = username
+    }
+
+    let roomname = localStorage.getItem("roomname")
+    if (roomname) {
+        roomInput.value = roomname
+    }
+}
+
+loadWindowState();

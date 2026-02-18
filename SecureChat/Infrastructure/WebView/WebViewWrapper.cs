@@ -1,4 +1,4 @@
-﻿using System.Security.Policy;
+﻿using System.IO;
 using System.Text.Json;
 using Microsoft.Web.WebView2.WinForms;
 using SecureChat.Core.Interfaces;
@@ -8,10 +8,63 @@ namespace SecureChat.Infrastructure.WebView;
 public class WebViewWrapper : IWebView
 {
     private readonly WebView2 _webView;
+    private readonly OpenFileDialog _openFileDialog;
+    private readonly SaveFileDialog _saveFileDialog;
 
-    public WebViewWrapper(WebView2 webView)
+    public WebViewWrapper(WebView2 webView, OpenFileDialog openFileDialog, SaveFileDialog saveFileDialog)
     {
         _webView = webView;
+        _openFileDialog = openFileDialog;
+        _saveFileDialog = saveFileDialog;
+
+        _openFileDialog.Filter = "All files (*.*)|*.*";
+        _openFileDialog.InitialDirectory = Directory.GetCurrentDirectory();
+
+        _saveFileDialog.InitialDirectory = Directory.GetCurrentDirectory();
+    }
+
+    public Task<FileInfo?> SaveFileDialog()
+    {
+        var tcs = new TaskCompletionSource<FileInfo?>();
+        _webView.Invoke(() =>
+        {
+            if (_saveFileDialog.ShowDialog() == DialogResult.OK)
+            {
+                var fi = new FileInfo(_saveFileDialog.FileName);
+                if (fi.Directory is not null)
+                {
+                    _saveFileDialog.InitialDirectory = fi.Directory.FullName;
+                }
+                tcs.TrySetResult(fi);
+            }
+            else
+            {
+                tcs.TrySetResult(null);
+            }
+        });
+        return tcs.Task;
+    }
+
+    public Task<FileInfo?> OpenFileDialog()
+    {
+        var tcs = new TaskCompletionSource<FileInfo?>();
+        _webView.Invoke(() =>
+        {
+            if (_openFileDialog.ShowDialog() == DialogResult.OK)
+            {
+                var fi = new FileInfo(_openFileDialog.FileName);
+                if (fi.Directory is not null)
+                {
+                    _openFileDialog.InitialDirectory = fi.Directory.FullName;
+                }
+                tcs.TrySetResult(fi);
+            }
+            else
+            {
+                tcs.TrySetResult(null);
+            }
+        });
+        return tcs.Task;
     }
 
     private Task<string> ExecuteScriptAsyncInternal(string jsCode)
