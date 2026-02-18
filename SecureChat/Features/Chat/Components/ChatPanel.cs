@@ -120,7 +120,7 @@ internal class ChatPanel
     {
         if (string.IsNullOrWhiteSpace(request.MessageId) ||
             string.IsNullOrWhiteSpace(_currentSession.Username) ||
-            string.IsNullOrWhiteSpace(request.Text))
+            (string.IsNullOrWhiteSpace(request.Text) && request.Attachment?.Data is null))
         {
             return;
         }
@@ -240,7 +240,7 @@ internal class ChatPanel
         {
             MessageId = msg.MessageId,
         });
-        if (msg.Attachment is not null)
+        if (msg.Attachment is not null && msg.Attachment.Data is not null && !msg.Attachment.Data.StartsWith("data:image/png;base64,"))
         {
             _tab.Send(new LoadFileRequest()
             {
@@ -283,7 +283,7 @@ internal class ChatPanel
                 await fs.CopyToAsync(stream);
                 await _tab.Send(new LoadFileResponse()
                 {
-                    FileName = Path.GetFileNameWithoutExtension(fileInfo.Name),
+                    FileName = fileInfo.Name,
                     Payload = stream.GetBuffer()
                 });
             }
@@ -291,7 +291,7 @@ internal class ChatPanel
             {
                 await _tab.Send(new LoadFileResponse()
                 {
-                    Payload = null,
+                    Payload = new ArraySegment<byte>(),
                 });
             }
         });
@@ -299,7 +299,7 @@ internal class ChatPanel
 
     async void Process(LoadFileResponse request)
     {
-        if (request.Payload is null || request.FileName is null)
+        if (request.Payload.Count == 0 || request.FileName is null)
         {
             MessageBox.Show("Ошибка при загрузке файла");
             return;
@@ -310,7 +310,7 @@ internal class ChatPanel
         );
 
         using var fs = new FileStream(Path.Combine(downloadsPath, request.FileName.Replace("/", string.Empty)), FileMode.CreateNew, FileAccess.Write);
-        await fs.WriteAsync(request.Payload.Value);
+        await fs.WriteAsync(request.Payload);
         await fs.FlushAsync();
         fs.Close();
         // Файл получен.
@@ -348,7 +348,7 @@ internal class ChatPanel
         [JsonPropertyName("text")]
         public string Text { get; set; } = string.Empty;
 
-        [JsonPropertyName("img")]
+        [JsonPropertyName("attachment")]
         public Attachment? Attachment { get; set; }
     }
 
@@ -412,6 +412,7 @@ internal class ChatPanel
         public string? FileName { get; set; }
 
         [JsonPropertyName("file_data")]
-        public ArraySegment<byte>? Payload { get; set; }
+        [JsonConverter(typeof(ArraySegmentByteConverter))]
+        public ArraySegment<byte> Payload { get; set; }
     }
 }

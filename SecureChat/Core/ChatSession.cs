@@ -4,6 +4,7 @@ using System.Net.WebSockets;
 using System.Security.Cryptography;
 using System.Text.Json;
 using Microsoft.IO;
+using Org.BouncyCastle.Utilities.Zlib;
 
 namespace SecureChat.Core;
 
@@ -48,8 +49,8 @@ public class ChatSession : IDisposable
     public async Task SendEncodedAsync(RecyclableMemoryStream plainStream)
     {
         // 2. Шифруем данные из временного потока в новый
-        var plainData = new ArraySegment<byte>(plainStream.GetBuffer(), 0, (int)plainStream.Length);
-        using var encryptedStream = EncryptToStream(plainData);
+        using var encryptedStream = _streamManager.GetStream();
+        await EncryptToStream(plainStream, encryptedStream);
 
         // 3. Отправляем зашифрованную последовательность
         await SendAsync(encryptedStream, true);
@@ -64,10 +65,11 @@ public class ChatSession : IDisposable
             JsonSerializer.Serialize(writer, value);
             writer.Flush();
         }
+        plainStream.Position = 0;
 
         // 2. Шифруем данные из временного потока в новый
-        var plainData = new ArraySegment<byte>(plainStream.GetBuffer(), 0, (int)plainStream.Length);
-        using var encryptedStream = EncryptToStream(plainData);
+        using var encryptedStream = _streamManager.GetStream();
+        await EncryptToStream(plainStream, encryptedStream);
 
         // 3. Отправляем зашифрованную последовательность
         await SendAsync(encryptedStream, true);
@@ -85,7 +87,10 @@ public class ChatSession : IDisposable
                 await _ws.SendAsync(data, WebSocketMessageType.Binary, endOfMessage, _cts.Token);
             }
         }
-        catch { /* Логируем или игнорируем ошибки конкретного сокета */ }
+        catch 
+        {
+            /* Логируем или игнорируем ошибки конкретного сокета */ 
+        }
         finally
         {
             _sendLock.Release();
@@ -104,7 +109,6 @@ public class ChatSession : IDisposable
             // Если последовательность пуста
             if (sequence.IsEmpty)
             {
-                await _ws.SendAsync(ReadOnlyMemory<byte>.Empty, WebSocketMessageType.Binary, endOfMessage, _cts.Token);
                 return;
             }
 
@@ -163,7 +167,7 @@ public class ChatSession : IDisposable
             {
                 result = await _ws.ReceiveAsync(new ArraySegment<byte>(buffer), _cts.Token);
 
-                if (result.MessageType == WebSocketMessageType.Close)
+                if (result.Count == 0 || result.MessageType == WebSocketMessageType.Close)
                 {
                     ms.Dispose();
                     throw new WebSocketException("Соединение закрыто сервером");
@@ -189,77 +193,80 @@ public class ChatSession : IDisposable
         }
     }
 
-    public RecyclableMemoryStream EncryptToStream(ArraySegment<byte> data)
+    private const int CHUNK_SIZE = 1024 * 1024; // 1 МБ на чанк
+
+    public async Task EncryptToStream(Stream inputStream, Stream outputStream)
     {
-        int payloadSize = data.Count;
-        int totalSize = NONCE_SIZE + TAG_SIZE + payloadSize;
-
-        // Берем новый поток для зашифрованных данных
-        var outputStream = _streamManager.GetStream("EncryptionOutput", totalSize);
-
-        // Резервируем место в потоке (важно для получения Span)
-        outputStream.SetLength(totalSize);
-        var buffer = outputStream.GetSpan(totalSize);
-
-        using (var aes = new AesGcm(_sharedKey, TAG_SIZE))
-        {
-            var nonceSpan = buffer.Slice(0, NONCE_SIZE);
-            var tagSpan = buffer.Slice(NONCE_SIZE, TAG_SIZE);
-            var cipherSpan = buffer.Slice(NONCE_SIZE + TAG_SIZE, payloadSize);
-
-            RandomNumberGenerator.Fill(nonceSpan);
-
-            // Шифруем напрямую в Span, выделенный из RecyclableMemoryStream
-            aes.Encrypt(nonceSpan, data.AsSpan(), cipherSpan, tagSpan);
-        }
-
-        // Сбрасываем позицию в начало для последующего чтения/отправки
-        outputStream.Position = 0;
-        return outputStream;
-    }
-
-    public RecyclableMemoryStream DecryptOptimized(RecyclableMemoryStream encryptedStream)
-    {
-        // 1. Проверки длины (Nonce + Tag)
-        long totalLength = encryptedStream.Length;
-        if (totalLength < NONCE_SIZE + TAG_SIZE)
-            throw new CryptographicException("Сообщение слишком короткое");
-
-        int plaintextLength = (int)totalLength - NONCE_SIZE - TAG_SIZE;
-
-        // 2. Получаем доступ к исходным данным без копирования
-        // RecyclableMemoryStream гарантирует доступ к буферу
-        byte[] inputBuffer = encryptedStream.GetBuffer();
-
-        // 3. Создаем целевой поток для расшифрованных данных
-        var resultStream = (RecyclableMemoryStream)_streamManager.GetStream();
+        using var aes = new AesGcm(_sharedKey, TAG_SIZE);
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(CHUNK_SIZE);
+        byte[] cipherBuffer = ArrayPool<byte>.Shared.Rent(CHUNK_SIZE);
+        byte[] nonce = new byte[NONCE_SIZE];
+        byte[] tag = new byte[TAG_SIZE];
 
         try
         {
-            // Устанавливаем размер заранее, чтобы избежать реаллокаций внутри потока
-            resultStream.SetLength(plaintextLength);
-            byte[] outputBuffer = resultStream.GetBuffer();
-
-            using (var aes = new AesGcm(_sharedKey, TAG_SIZE))
+            int bytesRead;
+            while ((bytesRead = await inputStream.ReadAsync(buffer, 0, CHUNK_SIZE)) > 0)
             {
-                // Используем Span для сегментации данных в исходном массиве
-                var nonceSpan = inputBuffer.AsSpan(0, NONCE_SIZE);
-                var tagSpan = inputBuffer.AsSpan(NONCE_SIZE, TAG_SIZE);
-                var cipherSpan = inputBuffer.AsSpan(NONCE_SIZE + TAG_SIZE, plaintextLength);
+                RandomNumberGenerator.Fill(nonce);
 
-                // Расшифровываем напрямую в буфер нового потока
-                aes.Decrypt(nonceSpan, cipherSpan, tagSpan, outputBuffer.AsSpan(0, plaintextLength));
+                // Шифруем текущий чанк
+                aes.Encrypt(nonce, buffer.AsSpan(0, bytesRead), cipherBuffer.AsSpan(0, bytesRead), tag);
+
+                // Записываем метаданные чанка
+                await outputStream.WriteAsync(BitConverter.GetBytes(bytesRead), 0, 4);
+                await outputStream.WriteAsync(nonce, 0, NONCE_SIZE);
+                await outputStream.WriteAsync(tag, 0, TAG_SIZE);
+                await outputStream.WriteAsync(cipherBuffer, 0, bytesRead);
             }
-
-            resultStream.Position = 0;
-            return resultStream;
         }
-        catch
+        finally
         {
-            resultStream.Dispose();
-            throw;
+            ArrayPool<byte>.Shared.Return(buffer);
+            ArrayPool<byte>.Shared.Return(cipherBuffer);
         }
     }
+
+    public async Task DecryptOptimized(Stream encryptedStream, Stream outputStream)
+    {
+        using var aes = new AesGcm(_sharedKey, TAG_SIZE);
+        byte[] sizeBuffer = new byte[4];
+        byte[] nonce = new byte[NONCE_SIZE];
+        byte[] tag = new byte[TAG_SIZE];
+
+        try
+        {
+            while (await encryptedStream.ReadAsync(sizeBuffer, 0, 4) == 4)
+            {
+                int chunkSize = BitConverter.ToInt32(sizeBuffer, 0);
+                await encryptedStream.ReadAsync(nonce, 0, NONCE_SIZE);
+                await encryptedStream.ReadAsync(tag, 0, TAG_SIZE);
+
+                byte[] cipherText = ArrayPool<byte>.Shared.Rent(chunkSize);
+                byte[] plainText = ArrayPool<byte>.Shared.Rent(chunkSize);
+
+                try
+                {
+                    await encryptedStream.ReadAsync(cipherText, 0, chunkSize);
+
+                    // Расшифровываем чанк
+                    aes.Decrypt(nonce, cipherText.AsSpan(0, chunkSize), tag, plainText.AsSpan(0, chunkSize));
+
+                    await outputStream.WriteAsync(plainText, 0, chunkSize);
+                }
+                finally
+                {
+                    ArrayPool<byte>.Shared.Return(cipherText);
+                    ArrayPool<byte>.Shared.Return(plainText);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            throw new CryptographicException("Ошибка целостности файла или неверный ключ", ex);
+        }
+    }
+
 
     public void Dispose()
     {

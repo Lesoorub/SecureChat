@@ -20,13 +20,14 @@ internal partial class ChatTab : AbstractPage, IDisposable
     [SubHandler] private readonly ChatPanel _chatPanel;
     [SubHandler] private readonly CallPanel _callPanel;
 
-    public delegate void MsgReceivedCallback(MemoryStream message);
+    public delegate void MsgReceivedCallback(JsonElement message);
     private readonly Dictionary<string, MsgReceivedCallback> _receiveMesgCallbacks = new();
 
     public delegate void ServiceMsgCallback(JsonElement message);
     private readonly Dictionary<string, ServiceMsgCallback> _serviceMsgCallbacks = new();
 
     private readonly CancellationTokenSource _cancellationTokenSource = new();
+    private readonly RecyclableMemoryStreamManager _streamManager;
 
     public event Action<int>? MembersCount;
 
@@ -35,6 +36,8 @@ internal partial class ChatTab : AbstractPage, IDisposable
     {
         WebView = webView;
         _currentSession = currentSession;
+        _streamManager = manager;
+
         _chatPanel = new ChatPanel(this, currentSession, manager);
         _callPanel = new CallPanel(this, currentSession, _cancellationTokenSource.Token);
 
@@ -45,9 +48,9 @@ internal partial class ChatTab : AbstractPage, IDisposable
 
     public void RegisterNetCallback<T>(string action, Action<T> callback)
     {
-        _receiveMesgCallbacks[action] = stream =>
+        _receiveMesgCallbacks[action] = jsonElement =>
         {
-            callback?.Invoke(JsonSerializer.Deserialize<T>(stream) ?? throw new Exception("Cannot deserialize net message"));
+            callback?.Invoke(jsonElement.Deserialize<T>() ?? throw new Exception("Cannot deserialize net message"));
         };
     }
 
@@ -86,7 +89,7 @@ internal partial class ChatTab : AbstractPage, IDisposable
                     {
                         continue;
                     }
-                    ReadEncryptedMessage(session, rawMsgStream);
+                    await ReadEncryptedMessage(session, rawMsgStream);
                 }
                 catch
                 {
@@ -101,9 +104,10 @@ internal partial class ChatTab : AbstractPage, IDisposable
         }
     }
 
-    private void ReadEncryptedMessage(ChatSession session, RecyclableMemoryStream rawMsgStream)
+    private async Task ReadEncryptedMessage(ChatSession session, RecyclableMemoryStream rawMsgStream)
     {
-        using var decryptedMsgStream = session.DecryptOptimized(rawMsgStream);
+        using var decryptedMsgStream = _streamManager.GetStream();
+        await session.DecryptOptimized(rawMsgStream, decryptedMsgStream);
         if (!IsJson(decryptedMsgStream))
         {
             return;
@@ -116,7 +120,7 @@ internal partial class ChatTab : AbstractPage, IDisposable
             var action = actionProp.GetString();
             if (action is not null && _receiveMesgCallbacks.TryGetValue(action, out var callback))
             {
-                callback?.Invoke(decryptedMsgStream);
+                callback?.Invoke(doc.RootElement);
             }
         }
     }
@@ -195,6 +199,18 @@ internal partial class ChatTab : AbstractPage, IDisposable
     }
 
     internal Task Send<T>(T value) where T : notnull
+    {
+        var session = _currentSession.Session;
+        if (session is null || !session.IsActive)
+        {
+            return Task.CompletedTask;
+        }
+
+        //Console.WriteLine($"[Send]{JsonSerializer.Serialize(value)}");
+        return session.SendJsonEncodedAsync(value);
+    }
+
+    internal Task Send<T>(T value, RecyclableMemoryStream recyclableMemory) where T : notnull
     {
         var session = _currentSession.Session;
         if (session is null || !session.IsActive)
