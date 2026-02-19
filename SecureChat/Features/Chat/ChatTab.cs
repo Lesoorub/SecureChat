@@ -34,7 +34,7 @@ internal partial class ChatTab : AbstractPage, IDisposable
         _streamManager = manager;
 
         _chatPanel = new ChatPanel(this, currentSession, manager);
-        _callPanel = new CallPanel(this, currentSession, _cancellationTokenSource.Token);
+        _callPanel = new CallPanel(this, currentSession, manager, _cancellationTokenSource.Token);
 
         InitializeActions();
     }

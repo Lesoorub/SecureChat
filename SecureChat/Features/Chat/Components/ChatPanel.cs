@@ -298,7 +298,7 @@ internal class ChatPanel
         {
             if (request.FileId is not null && _uploadedFiles.TryGetValue(request.FileId, out var fileInfo))
             {
-                using var stream = _streamManager.GetStream();
+                var stream = _streamManager.GetStream();
                 using var fs = fileInfo.OpenRead();
                 await fs.CopyToAsync(stream);
                 await _tab.Send(new LoadFileResponse()

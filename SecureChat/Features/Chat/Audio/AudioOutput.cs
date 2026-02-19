@@ -76,14 +76,19 @@ internal class AudioOutput : IDisposable
         _waveOut.Init(_outVolumeControl.ToWaveProvider()); // Инициализируем уже адаптированным провайдером
     }
 
-    public bool AddAudioData(ArraySegment<byte> encodedBuffer)
+    public bool AddAudioData(ReadOnlySpan<byte> encodedBuffer)
     {
+        if (encodedBuffer.Length == 0)
+        {
+            return false;
+        }
+
         try
         {
             // 4. Декодирование Opus -> PCM16 (short[])
             // Используем Span для исключения лишних копирований, если библиотека позволяет
             int decodedSamples = _decoder.Decode(
-                in_data: encodedBuffer.AsSpan(),
+                in_data: encodedBuffer,
                 out_pcm: _decodeBuffer,
                 frame_size: _frameSize, 
                 decode_fec: false

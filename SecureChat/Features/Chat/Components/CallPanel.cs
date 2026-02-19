@@ -1,6 +1,8 @@
 ﻿using System;
+using System.Buffers;
 using System.Collections.Concurrent;
 using System.Text.Json.Serialization;
+using Microsoft.IO;
 using NAudio.CoreAudioApi;
 using NAudio.Wave;
 using SecureChat.Core;
@@ -12,6 +14,7 @@ internal class CallPanel : IDisposable
 {
     private readonly ChatTab _tab;
     private readonly CurrentSession _currentSession;
+    private readonly RecyclableMemoryStreamManager _streamManager;
     private readonly string _myUserId = Guid.NewGuid().ToString();
 
     private bool _micEnabled = false;
@@ -45,11 +48,12 @@ internal class CallPanel : IDisposable
 
     private CancellationTokenSource? _updateParticipantCts;
 
-    public CallPanel(ChatTab tab, CurrentSession currentSession, CancellationToken cancellationToken)
+    public CallPanel(ChatTab tab, CurrentSession currentSession, RecyclableMemoryStreamManager manager, CancellationToken cancellationToken)
     {
         _tab = tab;
         _currentSession = currentSession;
         _cancellationToken = cancellationToken;
+        _streamManager = manager;
 
         tab.RegisterNetCallback<AudioMessage>(AudioMessage.ACTION, Process);
         tab.RegisterNetCallback<JoinCall>(JoinCall.ACTION, Process);
@@ -140,11 +144,13 @@ function volumeChanged() {
 
     private void _audioInput_AudioData(ArraySegment<byte> buffer)
     {
+        var stream = _streamManager.GetStream();
+        stream.Write(buffer);
         _lastAudioDataSend = DateTime.UtcNow;
         _tab.Send(new AudioMessage()
         {
             UserId = _myUserId,
-            Data = buffer.ToArray(), // Копируем на всякий
+            Payload = stream, // Стрим будет утилизирован.
         });
         //Console.WriteLine($"Sended {buffer.Count} audio bytes");
     }
@@ -184,13 +190,41 @@ function volumeChanged() {
     /// <param name="request"></param>
     void Process(AudioMessage request)
     {
-        //Console.WriteLine($"Received {request.Data.Count} audio bytes");
-        if (request.UserId is not null && 
-            _audioOutput is not null && 
-            _audioOutput.AddAudioData(request.Data) && 
-            _users.TryGetValue(request.UserId, out var user))
+        if (request.Payload is null)
         {
-            user.LastSpeak = DateTime.UtcNow;
+            return;
+        }
+
+        var sequence = request.Payload.GetReadOnlySequence();
+        ReadOnlySpan<byte> audioSpan;
+        byte[]? buffer = null;
+        if (sequence.IsSingleSegment)
+        {
+            audioSpan = sequence.FirstSpan;
+        }
+        else
+        {
+            var len = (int)sequence.Length;
+            buffer = ArrayPool<byte>.Shared.Rent(len);
+            audioSpan = buffer.AsSpan(0, len);
+            request.Payload.Read(buffer, 0, len);
+        }
+        try
+        {
+            if (request.UserId is not null &&
+                _audioOutput is not null &&
+                _audioOutput.AddAudioData(audioSpan) &&
+                _users.TryGetValue(request.UserId, out var user))
+            {
+                user.LastSpeak = DateTime.UtcNow;
+            }
+        }
+        finally
+        {
+            if (buffer is not null)
+            {
+                ArrayPool<byte>.Shared.Return(buffer);
+            }
         }
     }
 
@@ -236,7 +270,7 @@ function volumeChanged() {
         }
     }
 
-    public class AudioMessage
+    public class AudioMessage : IHasPayload
     {
         public const string ACTION = "audio";
 
@@ -244,9 +278,9 @@ function volumeChanged() {
         public string? Action { get; set; } = ACTION;
         [JsonPropertyName("userid")]
         public string? UserId { get; set; }
-        [JsonPropertyName("data")]
-        [JsonConverter(typeof(ArraySegmentByteConverter))]
-        public ArraySegment<byte> Data { get; set; }
+
+        [JsonIgnore]
+        public RecyclableMemoryStream? Payload { get; set; }
     }
 
     public class JoinCall
@@ -306,6 +340,7 @@ function volumeChanged() {
     {
         DisableUpdateParticipant();
         TryDisableSpeaking();
+        TryDisableMic();
     }
 
     [JsAction("toggle_mic")]

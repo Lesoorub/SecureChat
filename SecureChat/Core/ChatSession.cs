@@ -30,22 +30,6 @@ public class ChatSession : IDisposable
         _streamManager = manager;
     }
 
-    public async Task SendJsonAsync<T>(T value) where T : notnull
-    {
-        // 1. Берем поток из пула
-        using var stream = _streamManager.GetStream("SendJsonAsync");
-
-        // 2. Сериализуем напрямую в UTF-8 поток
-        using (var writer = new Utf8JsonWriter((Stream)stream))
-        {
-            JsonSerializer.Serialize(writer, value);
-            writer.Flush(); // Обязательно сбрасываем буферы writer'а в поток
-        }
-
-        // 3. Получаем данные без копирования через GetReadOnlySequence()
-        await SendAsync(stream, true);
-    }
-
     private static void WriteInt32(RecyclableMemoryStream stream, int value)
     {
         BinaryPrimitives.WriteInt32LittleEndian(stream.GetSpan(4), value);
@@ -83,6 +67,7 @@ public class ChatSession : IDisposable
             WriteInt32(plainStream, (int)payload.Length);
             payload.Position = 0;
             await payload.CopyToAsync(plainStream);
+            payload.Dispose();
         }
         else
         {
