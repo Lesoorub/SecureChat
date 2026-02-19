@@ -20,16 +20,11 @@ internal partial class ChatTab : AbstractPage, IDisposable
     [SubHandler] private readonly ChatPanel _chatPanel;
     [SubHandler] private readonly CallPanel _callPanel;
 
-    public delegate void MsgReceivedCallback(JsonElement message);
-    private readonly Dictionary<string, MsgReceivedCallback> _receiveMesgCallbacks = new();
-
-    public delegate void ServiceMsgCallback(JsonElement message);
-    private readonly Dictionary<string, ServiceMsgCallback> _serviceMsgCallbacks = new();
+    public delegate ValueTask MsgReceivedCallback(JsonElement message, RecyclableMemoryStream? payload);
+    private readonly Dictionary<string, MsgReceivedCallback> _receiveMsgCallbacks = new();
 
     private readonly CancellationTokenSource _cancellationTokenSource = new();
     private readonly RecyclableMemoryStreamManager _streamManager;
-
-    public event Action<int>? MembersCount;
 
     public ChatTab(ILogger<ChatTab> logger, IWebView webView, CurrentSession currentSession, RecyclableMemoryStreamManager manager)
         : base(logger)
@@ -41,22 +36,34 @@ internal partial class ChatTab : AbstractPage, IDisposable
         _chatPanel = new ChatPanel(this, currentSession, manager);
         _callPanel = new CallPanel(this, currentSession, _cancellationTokenSource.Token);
 
-        RegisterServiceCallback(MembersCountResponse.ACTION, x => MembersCount?.Invoke(x.Deserialize<MembersCountResponse>()?.Count ?? 0));
-
         InitializeActions();
+    }
+
+    public void RegisterNetCallback<T>(string action, Func<T, Task> callback)
+    {
+        _receiveMsgCallbacks[action] = (jsonElement, payload) =>
+        {
+            var value = jsonElement.Deserialize<T>() ?? throw new Exception("Cannot deserialize net message");
+            if (payload is not null && value is IHasPayload hasPayload)
+            {
+                hasPayload.Payload = payload;
+            }
+            return new ValueTask(callback.Invoke(value));
+        };
     }
 
     public void RegisterNetCallback<T>(string action, Action<T> callback)
     {
-        _receiveMesgCallbacks[action] = jsonElement =>
+        _receiveMsgCallbacks[action] = (jsonElement, payload) =>
         {
-            callback?.Invoke(jsonElement.Deserialize<T>() ?? throw new Exception("Cannot deserialize net message"));
+            var value = jsonElement.Deserialize<T>() ?? throw new Exception("Cannot deserialize net message");
+            if (payload is not null && value is IHasPayload hasPayload)
+            {
+                hasPayload.Payload = payload;
+            }
+            callback.Invoke(value);
+            return ValueTask.CompletedTask;
         };
-    }
-
-    public void RegisterServiceCallback(string action, ServiceMsgCallback callback)
-    {
-        _serviceMsgCallbacks[action] = callback;
     }
 
     public override void PageLoaded()
@@ -84,12 +91,26 @@ internal partial class ChatTab : AbstractPage, IDisposable
             {
                 try
                 {
-                    using var rawMsgStream = await session.ReceiveFullMessageAsStreamAsync();
-                    if (TryReadServiceMessage(rawMsgStream))
+                    var (json, payload) = await session.ReceiveJsonAsync();
+                    if (json is null)
                     {
                         continue;
                     }
-                    await ReadEncryptedMessage(session, rawMsgStream);
+                    _ = Task.Run(async () =>
+                    {
+                        using var doc = json;
+                        using var b = payload;
+                        //Console.WriteLine($"[Receive]{doc.RootElement}");
+                        if (json.RootElement.TryGetProperty("action"u8, out var actionProp) &&
+                            actionProp.ValueKind == JsonValueKind.String)
+                        {
+                            var action = actionProp.GetString();
+                            if (action is not null && _receiveMsgCallbacks.TryGetValue(action, out var callback) && callback is not null)
+                            {
+                                await callback.Invoke(doc.RootElement, payload);
+                            }
+                        }
+                    });
                 }
                 catch
                 {
@@ -102,63 +123,6 @@ internal partial class ChatTab : AbstractPage, IDisposable
         {
             session.Dispose();
         }
-    }
-
-    private async Task ReadEncryptedMessage(ChatSession session, RecyclableMemoryStream rawMsgStream)
-    {
-        using var decryptedMsgStream = _streamManager.GetStream();
-        await session.DecryptOptimized(rawMsgStream, decryptedMsgStream);
-        if (!IsJson(decryptedMsgStream))
-        {
-            return;
-        }
-        using var doc = JsonDocument.Parse(decryptedMsgStream.GetReadOnlySequence());
-        //Console.WriteLine($"[Receive]{doc.RootElement}");
-        if (doc.RootElement.TryGetProperty("action"u8, out var actionProp) &&
-            actionProp.ValueKind == JsonValueKind.String)
-        {
-            var action = actionProp.GetString();
-            if (action is not null && _receiveMesgCallbacks.TryGetValue(action, out var callback))
-            {
-                callback?.Invoke(doc.RootElement);
-            }
-        }
-    }
-
-    private bool TryReadServiceMessage(RecyclableMemoryStream ms)
-    {
-        if (ms.Length > 256 || ms.Length <= 2)
-        {
-            return false;
-        }
-
-        try
-        {
-            if (!IsJson(ms))
-            {
-                return false;
-            }
-
-            // Parse принимает ReadOnlySequence напрямую — это максимально быстро
-            using var doc = JsonDocument.Parse(ms.GetReadOnlySequence());
-
-            if (doc.RootElement.TryGetProperty("action"u8, out var actionProp) &&
-                actionProp.ValueKind == JsonValueKind.String)
-            {
-                var action = actionProp.GetString();
-                if (action != null && _serviceMsgCallbacks.TryGetValue(action, out var callback))
-                {
-                    callback?.Invoke(doc.RootElement.Clone()); // Клонируем, если callback использует данные после Dispose doc
-                    return true;
-                }
-            }
-        }
-        catch
-        {
-            // Игнорируем ошибки парсинга, возвращаем false
-        }
-
-        return false;
     }
 
     public bool IsJson(RecyclableMemoryStream ms)
@@ -206,20 +170,13 @@ internal partial class ChatTab : AbstractPage, IDisposable
             return Task.CompletedTask;
         }
 
-        //Console.WriteLine($"[Send]{JsonSerializer.Serialize(value)}");
-        return session.SendJsonEncodedAsync(value);
-    }
-
-    internal Task Send<T>(T value, RecyclableMemoryStream recyclableMemory) where T : notnull
-    {
-        var session = _currentSession.Session;
-        if (session is null || !session.IsActive)
+        if (value is IHasPayload hasPayload)
         {
-            return Task.CompletedTask;
+            return session.SendEncodedAsync(value, hasPayload.Payload);
         }
 
         //Console.WriteLine($"[Send]{JsonSerializer.Serialize(value)}");
-        return session.SendJsonEncodedAsync(value);
+        return session.SendEncodedAsync(value, null);
     }
 
     public void Dispose()

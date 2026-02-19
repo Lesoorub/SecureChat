@@ -1,10 +1,10 @@
 ﻿using System.Buffers;
+using System.Buffers.Binary;
 using System.IO;
 using System.Net.WebSockets;
 using System.Security.Cryptography;
 using System.Text.Json;
 using Microsoft.IO;
-using Org.BouncyCastle.Utilities.Zlib;
 
 namespace SecureChat.Core;
 
@@ -33,7 +33,7 @@ public class ChatSession : IDisposable
     public async Task SendJsonAsync<T>(T value) where T : notnull
     {
         // 1. Берем поток из пула
-        using var stream = _streamManager.GetStream();
+        using var stream = _streamManager.GetStream("SendJsonAsync");
 
         // 2. Сериализуем напрямую в UTF-8 поток
         using (var writer = new Utf8JsonWriter((Stream)stream))
@@ -46,58 +46,70 @@ public class ChatSession : IDisposable
         await SendAsync(stream, true);
     }
 
-    public async Task SendEncodedAsync(RecyclableMemoryStream plainStream)
+    private static void WriteInt32(RecyclableMemoryStream stream, int value)
     {
-        // 2. Шифруем данные из временного потока в новый
-        using var encryptedStream = _streamManager.GetStream();
-        await EncryptToStream(plainStream, encryptedStream);
-
-        // 3. Отправляем зашифрованную последовательность
-        await SendAsync(encryptedStream, true);
+        BinaryPrimitives.WriteInt32LittleEndian(stream.GetSpan(4), value);
+        stream.Advance(4);
     }
 
-    public async Task SendJsonEncodedAsync<T>(T value) where T : notnull
+    private static int ReadInt32(ReadOnlySequence<byte> sequence)
+    {
+        var reader = new SequenceReader<byte>(sequence);
+        if (!reader.TryReadLittleEndian(out int value))
+        {
+            throw new InvalidOperationException();
+        }
+        return value;
+    }
+
+    private static int ReadInt32(RecyclableMemoryStream stream)
+    {
+        var value = BinaryPrimitives.ReadInt32LittleEndian(stream.GetSpan(4));
+        stream.Advance(4);
+        return value;
+    }
+
+    public async Task SendEncodedAsync<T>(T value, RecyclableMemoryStream? payload) where T : notnull
     {
         // 1. Сериализуем во временный поток
-        using var plainStream = _streamManager.GetStream("Serialization");
+        using var plainStream = _streamManager.GetStream("SendEncodedAsync.1");
         using (var writer = new Utf8JsonWriter((Stream)plainStream))
         {
             JsonSerializer.Serialize(writer, value);
             writer.Flush();
         }
-        plainStream.Position = 0;
+        if (payload is not null)
+        {
+            WriteInt32(plainStream, (int)payload.Length);
+            payload.Position = 0;
+            await payload.CopyToAsync(plainStream);
+        }
+        else
+        {
+            plainStream.Write(stackalloc byte[4]);
+        }
 
         // 2. Шифруем данные из временного потока в новый
-        using var encryptedStream = _streamManager.GetStream();
+        using var encryptedStream = _streamManager.GetStream("SendEncodedAsync.2");
+        plainStream.Position = 0;
         await EncryptToStream(plainStream, encryptedStream);
 
         // 3. Отправляем зашифрованную последовательность
         await SendAsync(encryptedStream, true);
     }
 
-    public async Task SendAsync(ArraySegment<byte> data, bool endOfMessage = true)
+    async Task SendAsync(RecyclableMemoryStream stream, bool endOfMessage = true)
     {
         if (_ws.State != WebSocketState.Open) return;
 
-        await _sendLock.WaitAsync();
-        try
-        {
-            if (_ws.State == WebSocketState.Open)
-            {
-                await _ws.SendAsync(data, WebSocketMessageType.Binary, endOfMessage, _cts.Token);
-            }
-        }
-        catch 
-        {
-            /* Логируем или игнорируем ошибки конкретного сокета */ 
-        }
-        finally
-        {
-            _sendLock.Release();
-        }
+        // RMS может состоять из множества блоков (сегментов)
+        // GetReadOnlySequence() — самый быстрый способ получить доступ к ним без копирования
+        var sequence = stream.GetReadOnlySequence();
+
+        await SendAsync(sequence, endOfMessage);
     }
 
-    public async Task SendAsync(ReadOnlySequence<byte> sequence, bool endOfMessage = true)
+    async Task SendAsync(ReadOnlySequence<byte> sequence, bool endOfMessage = true)
     {
         if (_ws.State != WebSocketState.Open) return;
 
@@ -136,25 +148,51 @@ public class ChatSession : IDisposable
         }
     }
 
-    public async Task SendAsync(RecyclableMemoryStream stream, bool endOfMessage = true)
+    public async Task<(JsonDocument json, RecyclableMemoryStream? payload)> ReceiveJsonAsync()
     {
-        if (_ws.State != WebSocketState.Open) return;
+        // 1. Получаем и расшифровываем всё сообщение целиком
+        using var encryptedMessage = await ReceiveFullMessageAsStreamAsync();
+        var plainStream = _streamManager.GetStream("ReceiveJsonAsync.Decrypted");
 
-        // RMS может состоять из множества блоков (сегментов)
-        // GetReadOnlySequence() — самый быстрый способ получить доступ к ним без копирования
-        var sequence = stream.GetReadOnlySequence();
+        await DecryptOptimized(encryptedMessage, plainStream);
+        plainStream.Position = 0;
 
-        await SendAsync(sequence, endOfMessage);
+        return Parse();
+
+        (JsonDocument json, RecyclableMemoryStream? payload) Parse()
+        {
+            try
+            {
+                var reader = new Utf8JsonReader(plainStream.GetReadOnlySequence());
+                JsonDocument json = JsonDocument.ParseValue(ref reader);
+                var jsonLen = reader.BytesConsumed;
+                plainStream.Position = jsonLen;
+                var payloadLen = ReadInt32(plainStream);
+
+                RecyclableMemoryStream? payloadStream = null;
+                if (payloadLen > 0)
+                {
+                    payloadStream = _streamManager.GetStream("ReceiveJsonAsync.Payload");
+                    payloadStream.SetLength(payloadLen);
+                    plainStream.Position = 0;
+                    var buffer = plainStream.GetReadOnlySequence().Slice(4 + jsonLen, payloadLen);
+                    foreach (var segment in buffer)
+                    {
+                        payloadStream.Write(segment.Span);
+                    }
+                    payloadStream.Position = 0;
+                }
+
+                return (json, payloadStream);
+            }
+            catch (Exception ex)
+            {
+                throw;
+            }
+        }
     }
 
-    public async Task<T?> ReceiveJsonAsync<T>()
-    {
-        // 3. Используем поток и автоматически возвращаем его в пул через Dispose
-        using var stream = await ReceiveFullMessageAsStreamAsync();
-        return await JsonSerializer.DeserializeAsync<T>(stream, (JsonSerializerOptions?)null, _cts.Token);
-    }
-
-    public async Task<RecyclableMemoryStream> ReceiveFullMessageAsStreamAsync()
+    async Task<RecyclableMemoryStream> ReceiveFullMessageAsStreamAsync()
     {
         // 1. Берем поток из менеджера (вызывающий код ДОЛЖЕН сделать ему Dispose)
         var ms = _streamManager.GetStream();
@@ -266,7 +304,6 @@ public class ChatSession : IDisposable
             throw new CryptographicException("Ошибка целостности файла или неверный ключ", ex);
         }
     }
-
 
     public void Dispose()
     {

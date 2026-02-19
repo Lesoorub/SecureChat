@@ -11,6 +11,8 @@ namespace SecureChat.Features.Chat.Components;
 
 internal class ChatPanel
 {
+    private string CustomDownloadFolderName = "SecureChatDownloads";
+
     private readonly ChatTab _tab;
     private readonly CurrentSession _currentSession;
     private readonly RecyclableMemoryStreamManager _streamManager;
@@ -218,10 +220,18 @@ internal class ChatPanel
         {
             string downloadsPath = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-                "Downloads"
+                "Downloads",
+                CustomDownloadFolderName
             );
+            Directory.CreateDirectory(downloadsPath);
 
             string filePath = Path.Combine(downloadsPath, request.FileName);
+
+            if (!File.Exists(filePath))
+            {
+                MessageBox.Show("Файл не найден");
+                return;
+            }
 
             string argument = $"/select,\"{filePath}\"";
             System.Diagnostics.Process.Start("explorer.exe", argument);
@@ -234,6 +244,11 @@ internal class ChatPanel
 
     void Process(Message msg)
     {
+        if (msg.Username is null || msg.Text is null)
+        {
+            return;
+        }
+
         PlayNewMessage();
         AppendMessage(false, msg.Username, msg.Text, attachment: msg.Attachment);
         _tab.Send(new ConfirmMessage
@@ -251,6 +266,11 @@ internal class ChatPanel
 
     void Process(ConfirmMessage confirmMsg)
     {
+        if (confirmMsg.MessageId is null)
+        {
+            return;
+        }
+
         SetMessageState(confirmMsg.MessageId, "sent");
     }
 
@@ -284,33 +304,42 @@ internal class ChatPanel
                 await _tab.Send(new LoadFileResponse()
                 {
                     FileName = fileInfo.Name,
-                    Payload = stream.GetBuffer()
+                    Payload = stream
                 });
             }
             else
             {
                 await _tab.Send(new LoadFileResponse()
                 {
-                    Payload = new ArraySegment<byte>(),
+                    Payload = null,
                 });
             }
         });
     }
 
-    async void Process(LoadFileResponse request)
+    async Task Process(LoadFileResponse request)
     {
-        if (request.Payload.Count == 0 || request.FileName is null)
+        if (request.Payload is null || request.FileName is null)
         {
             MessageBox.Show("Ошибка при загрузке файла");
             return;
         }
         string downloadsPath = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-            "Downloads"
+            "Downloads",
+            CustomDownloadFolderName
         );
+        Directory.CreateDirectory(downloadsPath);
 
-        using var fs = new FileStream(Path.Combine(downloadsPath, request.FileName.Replace("/", string.Empty)), FileMode.CreateNew, FileAccess.Write);
-        await fs.WriteAsync(request.Payload);
+        string filePath = Path.Combine(downloadsPath, request.FileName.Replace("/", string.Empty));
+
+        if (File.Exists(filePath))
+        {
+            File.Delete(filePath);
+        }
+
+        using var fs = new FileStream(filePath, FileMode.CreateNew, FileAccess.Write);
+        await request.Payload.CopyToAsync(fs);
         await fs.FlushAsync();
         fs.Close();
         // Файл получен.
@@ -340,13 +369,13 @@ internal class ChatPanel
         public string Action { get; set; } = ACTION;
 
         [JsonPropertyName("msg_id")]
-        public string MessageId { get; set; } = string.Empty;
+        public string? MessageId { get; set; }
 
         [JsonPropertyName("username")]
-        public string Username { get; set; } = string.Empty;
+        public string? Username { get; set; }
 
         [JsonPropertyName("text")]
-        public string Text { get; set; } = string.Empty;
+        public string? Text { get; set; }
 
         [JsonPropertyName("attachment")]
         public Attachment? Attachment { get; set; }
@@ -360,7 +389,7 @@ internal class ChatPanel
         public string Action { get; set; } = ACTION;
 
         [JsonPropertyName("msg_id")]
-        public string MessageId { get; set; } = string.Empty;
+        public string? MessageId { get; set; }
     }
 
     public class UserConnected
@@ -401,7 +430,7 @@ internal class ChatPanel
         public string? FileId { get; set; }
     }
 
-    public class LoadFileResponse
+    public class LoadFileResponse : IHasPayload
     {
         public const string ACTION = "load_file_response";
 
@@ -411,8 +440,7 @@ internal class ChatPanel
         [JsonPropertyName("file_name")]
         public string? FileName { get; set; }
 
-        [JsonPropertyName("file_data")]
-        [JsonConverter(typeof(ArraySegmentByteConverter))]
-        public ArraySegment<byte> Payload { get; set; }
+        [JsonIgnore]
+        public RecyclableMemoryStream? Payload { get; set; }
     }
 }
