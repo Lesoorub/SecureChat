@@ -7,8 +7,7 @@
     btnJoin = document.getElementById("btn-join"),
     settingsModal = document.getElementById("settings-modal"),
     serverInput = document.getElementById("server-url-input");
-
-const currentVersion = "1.0.1"; // Версия текущей сборки клиента
+    appVersion = document.getElementById("app-version");
 
 function postToCSharp(action, data = {}) {
     window.chrome?.webview && window.chrome.webview.postMessage({ action, ...data });
@@ -49,6 +48,7 @@ btnJoin.onclick = () => {
     }
 };
 
+
 // API для вызова из C#
 window.api = {
     processError: (msg) => {
@@ -66,7 +66,7 @@ window.api = {
         serverInput.value = url;
     },
     setVersion: (serverVersion) => {
-        document.getElementById("app-version").textContent = "v" + currentVersion;
+        let currentVersion = appVersion.textContent;
 
         if (serverVersion !== currentVersion) {
             document.getElementById("update-link").classList.remove("hidden");
