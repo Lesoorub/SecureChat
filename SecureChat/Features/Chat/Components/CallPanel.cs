@@ -60,9 +60,9 @@ internal class CallPanel : IDisposable
         tab.RegisterNetCallback<WhoIsThere>(WhoIsThere.ACTION, Process);
         tab.RegisterNetCallback<IAmHere>(IAmHere.ACTION, Process);
 
-        _audioInput = new AudioInput(_inDeviceId, s_networkFormat);
-        _audioInput.AudioData += _audioInput_AudioData;
         _audioOutput = new AudioOutput(_outDeviceId, s_networkFormat);
+        _audioInput = new AudioInput(_inDeviceId, s_networkFormat, _audioOutput);
+        _audioInput.AudioData += _audioInput_AudioData;
         /*
 function volumeChanged() {
     let newVolume = parseFloat(document.getElementById('volSlider').value);

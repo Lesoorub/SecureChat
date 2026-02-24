@@ -4,6 +4,7 @@ using System.IO;
 using System.Net.WebSockets;
 using System.Security.Cryptography;
 using System.Text.Json;
+using System.Threading;
 using Microsoft.IO;
 
 namespace SecureChat.Core;
@@ -179,16 +180,17 @@ public class ChatSession : IDisposable
 
     async Task<RecyclableMemoryStream> ReceiveFullMessageAsStreamAsync()
     {
-        // 1. Берем поток из менеджера (вызывающий код ДОЛЖЕН сделать ему Dispose)
         var ms = _streamManager.GetStream();
-        var buffer = ArrayPool<byte>.Shared.Rent(32 * 1024);
-
         try
         {
-            WebSocketReceiveResult result;
+            ValueWebSocketReceiveResult result;
             do
             {
-                result = await _ws.ReceiveAsync(new ArraySegment<byte>(buffer), _cts.Token);
+                // 1. Берем память напрямую из стрима (размер по умолчанию или ваш)
+                Memory<byte> memory = ms.GetMemory(32 * 1024);
+
+                // 2. Читаем из сокета прямо в эту память
+                result = await _ws.ReceiveAsync(memory, _cts.Token);
 
                 if (result.Count == 0 || result.MessageType == WebSocketMessageType.Close)
                 {
@@ -196,12 +198,11 @@ public class ChatSession : IDisposable
                     throw new WebSocketException("Соединение закрыто сервером");
                 }
 
-                // Записываем байты напрямую в поток
-                await ms.WriteAsync(buffer.AsMemory(0, result.Count));
+                // 3. Продвигаем позицию записи в стриме на количество вычитанных байт
+                ms.Advance(result.Count);
 
             } while (!result.EndOfMessage);
 
-            // 2. Сбрасываем позицию в начало, чтобы поток был готов к чтению
             ms.Position = 0;
             return ms;
         }
@@ -209,10 +210,6 @@ public class ChatSession : IDisposable
         {
             ms.Dispose();
             throw;
-        }
-        finally
-        {
-            ArrayPool<byte>.Shared.Return(buffer);
         }
     }
 
@@ -234,7 +231,7 @@ public class ChatSession : IDisposable
                 RandomNumberGenerator.Fill(nonce);
 
                 // Шифруем текущий чанк
-                aes.Encrypt(nonce, buffer.AsSpan(0, bytesRead), cipherBuffer.AsSpan(0, bytesRead), tag);
+                aes.Encrypt(nonce: nonce, plaintext: buffer.AsSpan(0, bytesRead), ciphertext: cipherBuffer.AsSpan(0, bytesRead), tag: tag);
 
                 // Записываем метаданные чанка
                 await outputStream.WriteAsync(BitConverter.GetBytes(bytesRead), 0, 4);
@@ -245,6 +242,8 @@ public class ChatSession : IDisposable
         }
         finally
         {
+            Array.Clear(nonce);
+            Array.Clear(tag);
             ArrayPool<byte>.Shared.Return(buffer);
             ArrayPool<byte>.Shared.Return(cipherBuffer);
         }

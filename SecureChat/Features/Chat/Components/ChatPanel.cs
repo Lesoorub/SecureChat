@@ -11,7 +11,7 @@ namespace SecureChat.Features.Chat.Components;
 
 internal class ChatPanel
 {
-    private string CustomDownloadFolderName = "SecureChatDownloads";
+    private string _customDownloadFolderName = "SecureChatDownloads";
 
     private readonly ChatTab _tab;
     private readonly CurrentSession _currentSession;
@@ -216,29 +216,53 @@ internal class ChatPanel
             return;
         }
 
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        {
+            MessageBox.Show("Такое не поддерживается");
+            return;
+        }
+
+        try
         {
             string downloadsPath = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
                 "Downloads",
-                CustomDownloadFolderName
+                _customDownloadFolderName
             );
-            Directory.CreateDirectory(downloadsPath);
 
-            string filePath = Path.Combine(downloadsPath, request.FileName);
+            // 2. Строгая очистка имени файла
+            string safeFileName = Path.GetFileName(request.FileName);
+            string filePath = Path.GetFullPath(Path.Combine(downloadsPath, safeFileName));
 
-            if (!File.Exists(filePath))
+            // 3. Дополнительная проверка: не вышел ли путь за пределы целевой папки
+            // (Защита от специфических манипуляций с именами устройств типа CON, PRN или дисками)
+            if (!filePath.StartsWith(downloadsPath, StringComparison.OrdinalIgnoreCase))
             {
-                MessageBox.Show("Файл не найден");
                 return;
             }
 
-            string argument = $"/select,\"{filePath}\"";
-            System.Diagnostics.Process.Start("explorer.exe", argument);
+            if (!File.Exists(filePath))
+            {
+                return;
+            }
+
+            // 4. Безопасный запуск процесса
+            // Используем ProcessStartInfo, чтобы четко разделить исполняемый файл и аргументы
+            var startInfo = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = "explorer.exe",
+                // Важно: Аргументы передаются отдельно, кавычки экранируются
+                Arguments = $"/select,\"{filePath}\"",
+                UseShellExecute = false, // Не используем оболочку для запуска
+                CreateNoWindow = true
+            };
+
+            System.Diagnostics.Process.Start(startInfo);
         }
-        else
+        catch
         {
-            MessageBox.Show("Такое не поддерживается");
+            // Логируем ошибку, не показывая UI пользователю
+            // Logger.LogError(ex);
         }
     }
 
@@ -327,7 +351,7 @@ internal class ChatPanel
         string downloadsPath = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
             "Downloads",
-            CustomDownloadFolderName
+            _customDownloadFolderName
         );
         Directory.CreateDirectory(downloadsPath);
 

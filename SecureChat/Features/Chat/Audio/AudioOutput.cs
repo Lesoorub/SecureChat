@@ -1,6 +1,5 @@
 ﻿using System.Runtime.InteropServices;
 using Concentus;
-using Concentus.Structs;
 using NAudio.CoreAudioApi;
 using NAudio.Wave;
 using NAudio.Wave.SampleProviders;
@@ -24,12 +23,13 @@ internal class AudioOutput : IDisposable
     private readonly short[] _decodeBuffer; // Буфер для PCM16
     private readonly byte[] _pcmByteArray;  // Буфер для байтового представления PCM16
     private readonly int _frameSize;
+    public EchoCancellationWaveProvider EchoProvider { get; private set; }
 
     public AudioOutput(string? deviceId, WaveFormat networkFormat)
     {
         if (string.IsNullOrEmpty(deviceId))
         {
-            _waveOut = new WasapiOut();
+            _waveOut = new WasapiOut(AudioClientShareMode.Shared, true, 100);
         }
         else
         {
@@ -54,14 +54,14 @@ internal class AudioOutput : IDisposable
             ReadFully = true,
         };
 
-        // 1. Превращаем байты в Float Sample Provider
-        var sampleProvider = _waveProvider.ToSampleProvider();
+        // Инициализируем AEC (20мс кадр, 200мс фильтр)
+        EchoProvider = new EchoCancellationWaveProvider(20, 200, _waveProvider);
 
-        // 2. Ресемплируем и меняем количество каналов под целевое устройство (OutputWaveFormat)
-        // Это магия, которая адаптирует 48000/1 в то, что хочет Windows (например, 44100/2)
+        // Цепочка: _waveProvider -> EchoProvider -> Resampler -> Volume -> WasapiOut
+        var sampleProvider = EchoProvider.ToSampleProvider();
+
         var resampler = new WdlResamplingSampleProvider(sampleProvider, _waveOut.OutputWaveFormat.SampleRate);
 
-        // 3. Если устройство стерео, а входящий звук моно — приводим к стерео
         ISampleProvider finalProvider = resampler;
         if (_waveOut.OutputWaveFormat.Channels > 1 && networkFormat.Channels == 1)
         {
@@ -69,11 +69,7 @@ internal class AudioOutput : IDisposable
         }
 
         _outVolumeControl = new VolumeSampleProvider(finalProvider) { Volume = _volume };
-        _waveOut.PlaybackStopped += (s, e) =>
-        {
-            Console.WriteLine($"Playback Stopped! Reason: {e.Exception?.Message}");
-        };
-        _waveOut.Init(_outVolumeControl.ToWaveProvider()); // Инициализируем уже адаптированным провайдером
+        _waveOut.Init(_outVolumeControl.ToWaveProvider());
     }
 
     public bool AddAudioData(ReadOnlySpan<byte> encodedBuffer)
@@ -90,7 +86,7 @@ internal class AudioOutput : IDisposable
             int decodedSamples = _decoder.Decode(
                 in_data: encodedBuffer,
                 out_pcm: _decodeBuffer,
-                frame_size: _frameSize, 
+                frame_size: _frameSize,
                 decode_fec: false
             );
 

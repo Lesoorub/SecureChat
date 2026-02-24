@@ -19,8 +19,10 @@ internal class AudioInput
     private readonly WaveFormat _networkFormat;
 
     private WasapiCapture _waveIn;
-    private VolumeSampleProvider _volumeControl;
+    private AudioOutput _audioOutput;
 
+    private readonly EchoCancellationWaveProvider _aec;
+    private VolumeSampleProvider _volumeControl;
     private BufferedWaveProvider _captureBuffer;
     private MediaFoundationResampler _captureResampler;
 
@@ -29,24 +31,29 @@ internal class AudioInput
     private readonly byte[] _conversionBuffer; // Для PCM16
     private readonly byte[] _encodedBuffer;    // Для сжатого Opus
     private readonly double _resampleRatio;
+    private readonly int _bytesPerFrame;    // Размер 20мс фрейма в байтах
 
     public delegate void AudioDataArgs(ArraySegment<byte> buffer);
     public event AudioDataArgs? AudioData;
 
-    public AudioInput(string? deviceId, WaveFormat networkFormat)
+    public AudioInput(string? deviceId, WaveFormat networkFormat, AudioOutput audioOutput)
     {
         _networkFormat = networkFormat;
+        _audioOutput = audioOutput;
+        _aec = audioOutput.EchoProvider; // Получаем доступ к общему AEC
 
+        using var enumerator = new MMDeviceEnumerator();
         if (string.IsNullOrEmpty(deviceId))
         {
-            _waveIn = new WasapiCapture();
+            using var device = enumerator.EnumerateAudioEndPoints(DataFlow.Capture, DeviceState.Active).First();
+            _waveIn = new WasapiCapture(device, true, 20);
         }
         else
         {
-            using var enumerator = new MMDeviceEnumerator();
             using var device = enumerator.GetDevice(deviceId);
-            _waveIn = new WasapiCapture(device);
+            _waveIn = new WasapiCapture(device, true, 20);
         }
+        _waveIn.DataAvailable += HandleAudioData;
 
         // Буфер для сырых данных с микрофона (в его родном формате)
         _captureBuffer = new BufferedWaveProvider(_waveIn.WaveFormat) { ReadFully = false };
@@ -57,22 +64,16 @@ internal class AudioInput
         _captureResampler = new MediaFoundationResampler(_volumeControl.ToWaveProvider(), networkFormat);
         _captureResampler.ResamplerQuality = 60; // Хорошее качество
 
-        _waveIn.DataAvailable += HandleAudioData;
-
         // Настройка Opus (48кГц, 1 канал, низкая задержка)
         _encoder = OpusCodecFactory.CreateEncoder(networkFormat.SampleRate, networkFormat.Channels, OpusApplication.OPUS_APPLICATION_VOIP);
         _encoder.Bitrate = 32000; // 32 kbps — отлично для голоса
+        _frameSize = networkFormat.SampleRate / 50; //Рассчитываем размер фрейма (20мс — стандарт)
 
-        //Рассчитываем размер фрейма (20мс — стандарт)
-        _frameSize = networkFormat.SampleRate / 50;
-
-        // Рассчитываем точное количество байт для 20мс фрейма один раз
-        int bytesNeededForFrame = networkFormat.AverageBytesPerSecond / 50;
-
-        // Инициализируем буфер ровно под этот размер
-        // Буфер для PCM16 данных (2 байта на семпл)
-        _conversionBuffer = new byte[bytesNeededForFrame];
+        // Точный расчет размеров буферов
+        _bytesPerFrame = _networkFormat.AverageBytesPerSecond / 50; // Рассчитываем точное количество байт для 20мс фрейма один раз
+        _conversionBuffer = new byte[_bytesPerFrame]; // Инициализируем буфер ровно под этот размер. Буфер для PCM16 данных (2 байта на семпл)
         _encodedBuffer = new byte[1024]; // 1КБ хватит для любого сжатого кадра
+
         _resampleRatio = (double)_networkFormat.AverageBytesPerSecond / _waveIn.WaveFormat.AverageBytesPerSecond;
     }
 
@@ -80,29 +81,28 @@ internal class AudioInput
     {
         try
         {
-            // 1. Сначала кладем сырые данные из WASAPI в буфер
             _captureBuffer.AddSamples(args.Buffer, 0, args.BytesRecorded);
 
-            // 2. Рассчитываем, сколько байт в результирующем формате (PCM16) нам нужно вычитать
-            // Формула: Частота * Каналы * 2 (байта на sample) * 0.02 (20мс)
-            int bytesNeededForFrame = _networkFormat.AverageBytesPerSecond / 50;
-
-            // 3. Пока в буфере достаточно данных, чтобы после ресемплирования получить полный фрейм
-            // Важно: проверяем BufferedBytes именно у источника (_captureBuffer)
-            // Но так как частоты могут отличаться, лучше ориентироваться на возможности Read
-            while (CanReadFullFrame(bytesNeededForFrame))
+            Span<byte> cleanBuffer = stackalloc byte[_bytesPerFrame];
+            while (CanReadFullFrame(_bytesPerFrame))
             {
-                // Читаем из ресемплера (он сам заберет из _captureBuffer и сконвертирует)
-                int read = _captureResampler.Read(_conversionBuffer, 0, bytesNeededForFrame);
+                int read = _captureResampler.Read(_conversionBuffer, 0, _bytesPerFrame);
 
-                if (read == bytesNeededForFrame)
+                if (read == _bytesPerFrame)
                 {
-                    // Конвертируем byte[] в Span<short> без аллокаций для энкодера
-                    ReadOnlySpan<short> pcmSpan = MemoryMarshal.Cast<byte, short>(_conversionBuffer);
+                    // --- AEC PROCESS START ---
+                    // Создаем временный буфер для очищенного сигнала
+                    cleanBuffer.Clear();
 
-                    // Сжатие (используя Concentus или аналоги)
+                    // Прогоняем через AEC: 
+                    // _conversionBuffer (микрофон) -> cleanBuffer (без эха)
+                    _aec.ProcessCapture(_conversionBuffer, cleanBuffer);
+
+                    // Дальше работаем с cleanBuffer вместо _conversionBuffer
+                    ReadOnlySpan<short> pcmSpan = MemoryMarshal.Cast<byte, short>(cleanBuffer);
+                    // --- AEC PROCESS END ---
+
                     int encodedLength = _encoder.Encode(pcmSpan, _frameSize, _encodedBuffer.AsSpan(), _encodedBuffer.Length);
-
                     AudioData?.Invoke(new ArraySegment<byte>(_encodedBuffer, 0, encodedLength));
                 }
                 else break;
@@ -133,6 +133,6 @@ internal class AudioInput
         _waveIn.StopRecording();
         _waveIn.DataAvailable -= HandleAudioData;
         _waveIn.Dispose();
-        _captureResampler.Dispose();
+        //_captureResampler.Dispose();
     }
 }
