@@ -16,7 +16,14 @@
                 <!-- Участники будут здесь -->
             </div>
             <div class="call-controls d-flex justify-content-center gap-3 pb-3">
-                <button id="mic-btn" class="btn btn-outline-light rounded-circle">🎤</button>
+                <button id="mic-btn" class="btn btn-outline-light rounded-circle"
+                        style="transition: border-color 0.2s, background 0.05s; overflow: hidden;">
+                    <!-- Контейнер теперь тоже flex, чтобы центрировать SVG внутри себя -->
+                    <div id="mic-icon-container" class="d-flex align-items-center justify-content-center"
+                         style="width: 24px; height: 24px; pointer-events: none;">
+                        <!-- Сюда вставляется SVG -->
+                    </div>
+                </button>
                 <button id="deafen-btn" class="btn btn-outline-light rounded-circle">🎧</button>
                 <button id="settings-btn" class="btn btn-outline-light rounded-circle" data-bs-toggle="modal" data-bs-target="#settingsModal">⚙️</button>
                 <button id="hangup-btn" class="btn btn-danger rounded-circle">📞</button>

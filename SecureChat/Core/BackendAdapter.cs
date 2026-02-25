@@ -19,7 +19,7 @@ internal class BackendAdapter
 {
     public string ServerUrl { get; set; } =
 #if DEBUG
-        "https://localhost:44362/";
+        "http://localhost:5000/";
 #else
         "http://212.193.27.71:5000/";
 #endif

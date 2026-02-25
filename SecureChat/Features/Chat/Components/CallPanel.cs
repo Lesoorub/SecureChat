@@ -85,9 +85,43 @@ function volumeChanged() {
          */
     }
 
+    private float GetMicGain()
+    {
+        return _audioInput.CurrentGain;
+    }
+
+    private async Task MicVolumeLoop()
+    {
+        float lastSentVolume = -1;
+
+        while (!_cancellationToken.IsCancellationRequested)
+        {
+            try
+            {
+                float currentVolume = GetMicGain();
+
+                // Ограничиваем диапазон на всякий случай (0.0 - 1.0)
+                currentVolume = Math.Clamp(currentVolume, 0f, 1f);
+
+                // Отправляем данные, если есть звук или если нужно "обнулить" индикатор
+                if (currentVolume > 0.01f || lastSentVolume > 0.01f)
+                {
+                    _tab.PostMessage(new { action = "set_mic_volume", value = currentVolume });
+                    lastSentVolume = currentVolume;
+                }
+            }
+            catch { /* ignore */ }
+
+            await Task.Delay(40); // ~25 кадров в секунду для плавности градиента
+        }
+    }
+
+
     public void OnPageLoaded()
     {
+        SetMicState(_micEnabled);
         Task.Run(HeartbeatLoop);
+        Task.Run(MicVolumeLoop);
     }
 
     private async Task HeartbeatLoop()
@@ -110,7 +144,7 @@ function volumeChanged() {
                 {
                     Id = _myUserId,
                     Name = myUsername,
-                    IsSpeaking = (now - _lastAudioDataSend) < TimeSpan.FromMilliseconds(800)
+                    IsSpeaking = (now - _lastAudioDataSend) < TimeSpan.FromMilliseconds(800) && GetMicGain() > 0.05f
                 });
 
                 // Добавляем остальных (только живых)

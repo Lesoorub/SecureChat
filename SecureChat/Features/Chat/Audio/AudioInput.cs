@@ -34,6 +34,8 @@ internal class AudioInput
     private readonly int _bytesPerFrame;    // Размер 20мс фрейма в байтах
     private bool _isRecording;
 
+    public float CurrentGain { get; private set; }
+
     public delegate void AudioDataArgs(ArraySegment<byte> buffer);
     public event AudioDataArgs? AudioData;
 
@@ -134,6 +136,8 @@ internal class AudioInput
                     ReadOnlySpan<short> pcmSpan = MemoryMarshal.Cast<byte, short>(cleanBuffer);
                     // --- AEC PROCESS END ---
 
+                    var gain = GetGain(pcmSpan, _aec.AgcEnable);
+                    CurrentGain = (CurrentGain * 0.8f) + (gain * 0.2f);
                     int encodedLength = _encoder.Encode(pcmSpan, _frameSize, _encodedBuffer.AsSpan(), _encodedBuffer.Length);
                     AudioData?.Invoke(new ArraySegment<byte>(_encodedBuffer, 0, encodedLength));
                 }
@@ -144,6 +148,45 @@ internal class AudioInput
         {
             Console.WriteLine($"Encode error: {ex}");
         }
+    }
+
+    private float GetGain(ReadOnlySpan<short> inputSamples, bool hasAgc)
+    {
+        if (inputSamples.Length == 0) return 0f;
+
+        double sum = 0;
+        for (int i = 0; i < inputSamples.Length; i++)
+        {
+            float sample = inputSamples[i] / 32768.0f;
+            sum += sample * sample;
+        }
+
+        double rms = Math.Sqrt(sum / inputSamples.Length);
+
+        // Порог абсолютной тишины
+        if (rms < 0.00001) return 0f;
+
+        // Переводим в дБ. 0 dB = максимальная амплитуда 32768.
+        float db = (float)(20 * Math.Log10(rms));
+
+        // Параметры шкалы
+        float minDb = -45f; // Порог видимости (тишина)
+        float maxDb = 0f;   // Порог максимума (1.0 на индикаторе)
+
+        if (hasAgc)
+        {
+            // Speex AGC по умолчанию стремится к уровню 8000.
+            // 20 * log10(8000 / 32768) ≈ -12 dB.
+            // Если AGC включен, мы считаем -12 dB за "полную шкалу",
+            // иначе индикатор никогда не поднимется выше 0.7-0.8.
+            maxDb = -12f;
+            minDb = -57f; // Смещаем и нижний порог, чтобы сохранить диапазон 45 dB
+        }
+
+        // Нормализация в 0.0 ... 1.0
+        float normalized = (db - minDb) / (maxDb - minDb);
+
+        return Math.Clamp(normalized, 0f, 1f);
     }
 
     // Вспомогательный метод для оценки доступности данных

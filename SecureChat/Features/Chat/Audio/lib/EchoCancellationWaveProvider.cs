@@ -21,6 +21,8 @@ public class EchoCancellationWaveProvider : IWaveProvider
 
     public bool NoiseSuppression { get; set; } = true;
 
+    public int GainPercent => _preprocessor.AgcGainPercent;
+
     public EchoCancellationWaveProvider(int frame_size_ms, int filter_length_ms, BufferedWaveProvider source)
     {
         _source = source;
@@ -58,7 +60,7 @@ public class EchoCancellationWaveProvider : IWaveProvider
             {
                 _canceller.EchoPlayback(_playbackBuffer);
             }
-            Console.WriteLine($"speaker: {_playbackBufferOffset}");
+            //Console.WriteLine($"speaker: {_playbackBufferOffset}");
             _playbackBufferOffset = 0;
             // Если пришло больше (редко), остаток в данном примере игнорируется для простоты
         }
@@ -68,7 +70,7 @@ public class EchoCancellationWaveProvider : IWaveProvider
 
     public void ProcessCapture(Span<byte> input, Span<byte> output)
     {
-        Console.WriteLine($"mic: {input.Length}");
+        //Console.WriteLine($"mic: {input.Length}");
 
         lock (_syncLock) // Синхронизируем доступ к эхоподавителю
         {
