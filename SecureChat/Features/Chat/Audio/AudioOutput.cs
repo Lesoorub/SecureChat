@@ -15,61 +15,86 @@ internal class AudioOutput : IDisposable
         set => _outVolumeControl.Volume = _volume = value;
     }
 
+    private WaveFormat _networkFormat;
     private WasapiOut _waveOut;
     private BufferedWaveProvider _waveProvider;
     private VolumeSampleProvider _outVolumeControl;
+    public EchoCancellationWaveProvider EchoProvider { get; private set; }
 
     private readonly IOpusDecoder _decoder;
     private readonly short[] _decodeBuffer; // Буфер для PCM16
     private readonly byte[] _pcmByteArray;  // Буфер для байтового представления PCM16
     private readonly int _frameSize;
-    public EchoCancellationWaveProvider EchoProvider { get; private set; }
+    private bool _isPlaying;
 
-    public AudioOutput(string? deviceId, WaveFormat networkFormat)
+    public AudioOutput()
     {
+        _networkFormat = NetworkConstants.AudioFormat;
+        _waveOut = new WasapiOut(shareMode: AudioClientShareMode.Shared, useEventSync: true, latency: 100);
+
+        // 1. Инициализация декодера (частота и каналы должны совпадать с энкодером)
+        _decoder = OpusCodecFactory.CreateDecoder(_networkFormat.SampleRate, _networkFormat.Channels);
+
+        // 2. Размер фрейма (20мс для 48кГц = 960 семплов)
+        _frameSize = _networkFormat.SampleRate / 50;
+
+        // 3. Подготовка буферов для декодирования
+        _decodeBuffer = new short[_frameSize * _networkFormat.Channels];
+        _pcmByteArray = new byte[_decodeBuffer.Length * 2];
+        (_waveOut, _waveProvider, EchoProvider, _outVolumeControl) = CreateDevices(_networkFormat, Volume);
+    }
+
+    public void UpdateDeviceId(string? deviceId = null)
+    {
+        if (_waveOut is not null)
+        {
+            _waveOut.Stop();
+            _waveOut.Dispose();
+        }
+        (_waveOut, _waveProvider, EchoProvider, _outVolumeControl) = CreateDevices(_networkFormat, Volume, deviceId);
+        if (_isPlaying)
+        {
+            _waveOut.Play();
+        }
+    }
+
+    private static (WasapiOut, BufferedWaveProvider, EchoCancellationWaveProvider, VolumeSampleProvider) CreateDevices(WaveFormat networkFormat, float volume, string? deviceId = null)
+    {
+        WasapiOut waveOut;
         if (string.IsNullOrEmpty(deviceId))
         {
-            _waveOut = new WasapiOut(AudioClientShareMode.Shared, true, 100);
+            waveOut = new WasapiOut(AudioClientShareMode.Shared, true, 100);
         }
         else
         {
             using var enumerator = new MMDeviceEnumerator();
             using var device = enumerator.GetDevice(deviceId);
-            _waveOut = new WasapiOut(device, AudioClientShareMode.Shared, true, 100);
+            waveOut = new WasapiOut(device, AudioClientShareMode.Shared, true, 100);
         }
 
-        // 1. Инициализация декодера (частота и каналы должны совпадать с энкодером)
-        _decoder = OpusCodecFactory.CreateDecoder(networkFormat.SampleRate, networkFormat.Channels);
-
-        // 2. Размер фрейма (20мс для 48кГц = 960 семплов)
-        _frameSize = networkFormat.SampleRate / 50;
-
-        // 3. Подготовка буферов для декодирования
-        _decodeBuffer = new short[_frameSize * networkFormat.Channels];
-        _pcmByteArray = new byte[_decodeBuffer.Length * 2];
-
-        _waveProvider = new BufferedWaveProvider(networkFormat)
+        var waveProvider = new BufferedWaveProvider(networkFormat)
         {
             DiscardOnBufferOverflow = true,
             ReadFully = true,
         };
-
         // Инициализируем AEC (20мс кадр, 200мс фильтр)
-        EchoProvider = new EchoCancellationWaveProvider(20, 200, _waveProvider);
+        var echoProvider = new EchoCancellationWaveProvider(20, 200, waveProvider);
 
         // Цепочка: _waveProvider -> EchoProvider -> Resampler -> Volume -> WasapiOut
-        var sampleProvider = EchoProvider.ToSampleProvider();
+        var sampleProvider = echoProvider.ToSampleProvider();
 
-        var resampler = new WdlResamplingSampleProvider(sampleProvider, _waveOut.OutputWaveFormat.SampleRate);
+        var resampler = new WdlResamplingSampleProvider(sampleProvider, waveOut.OutputWaveFormat.SampleRate);
 
         ISampleProvider finalProvider = resampler;
-        if (_waveOut.OutputWaveFormat.Channels > 1 && networkFormat.Channels == 1)
+        if (waveOut.OutputWaveFormat.Channels > 1 && networkFormat.Channels == 1)
         {
             finalProvider = new MonoToStereoSampleProvider(resampler);
         }
 
-        _outVolumeControl = new VolumeSampleProvider(finalProvider) { Volume = _volume };
-        _waveOut.Init(_outVolumeControl.ToWaveProvider());
+        var outVolumeControl = new VolumeSampleProvider(finalProvider) { Volume = volume };
+        waveOut.Init(outVolumeControl.ToWaveProvider());
+
+        return (waveOut, waveProvider, echoProvider, outVolumeControl);
     }
 
     public bool AddAudioData(ReadOnlySpan<byte> encodedBuffer)
@@ -110,11 +135,13 @@ internal class AudioOutput : IDisposable
 
     public void Enable()
     {
+        _isPlaying = true;
         _waveOut.Play();
     }
 
     public void Disable()
     {
+        _isPlaying = false;
         _waveOut.Pause();
     }
 

@@ -19,7 +19,6 @@ internal class CallPanel : IDisposable
 
     private bool _micEnabled = false;
 
-    private static readonly WaveFormat s_networkFormat = new WaveFormat(16000, 16, 1);
     private AudioInput _audioInput;
     private AudioOutput _audioOutput;
 
@@ -60,8 +59,10 @@ internal class CallPanel : IDisposable
         tab.RegisterNetCallback<WhoIsThere>(WhoIsThere.ACTION, Process);
         tab.RegisterNetCallback<IAmHere>(IAmHere.ACTION, Process);
 
-        _audioOutput = new AudioOutput(_outDeviceId, s_networkFormat);
-        _audioInput = new AudioInput(_inDeviceId, s_networkFormat, _audioOutput);
+        _audioOutput = new AudioOutput();
+        _audioOutput.UpdateDeviceId(_outDeviceId);
+        _audioInput = new AudioInput(_audioOutput);
+        _audioInput.UpdateDeviceId(_inDeviceId);
         _audioInput.AudioData += _audioInput_AudioData;
         /*
 function volumeChanged() {
@@ -381,11 +382,19 @@ function volumeChanged() {
     internal void Process(ApplySettings request)
     {
         // Сохраняем ID устройств в конфиг или поля класса
-        string selectedMicId = request.MicId;
-        string selectedSpeakerId = request.SpeakerId;
+        string? selectedMicId = request.MicId;
+        string? selectedSpeakerId = request.SpeakerId;
 
-        _inDeviceId = selectedMicId;
-        _outDeviceId = selectedSpeakerId;
+        if (_inDeviceId != selectedMicId)
+        {
+            _inDeviceId = selectedMicId;
+            _audioInput.UpdateDeviceId(selectedMicId);
+        }
+        if (_outDeviceId != selectedMicId)
+        {
+            _outDeviceId = selectedSpeakerId;
+            _audioOutput.UpdateDeviceId(selectedSpeakerId);
+        }
 
         SetSpeakerVolume(request.Volume);
         SetMicVolume(request.MicGain);
