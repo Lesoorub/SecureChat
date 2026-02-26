@@ -43,6 +43,9 @@
 
 	<ItemGroup>
 		<None Remove="wwwroot\assets\calm-sound-of-the-appearance-in-the-system.wav" />
+		<None Remove="wwwroot\pages\chat\callPanel.css" />
+		<None Remove="wwwroot\pages\chat\callPanel.js" />
+		<None Remove="wwwroot\pages\chat\settingsWindow.css" />
 		<None Remove="wwwroot\pages\chat\settingsWindow.js" />
 		<None Remove="wwwroot\pages\main\index.html" />
 		<None Remove="wwwroot\pages\main\index.js" />

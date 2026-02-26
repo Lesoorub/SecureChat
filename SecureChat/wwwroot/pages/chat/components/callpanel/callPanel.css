@@ -1,0 +1,51 @@
+﻿/* КНОПКА МИКРОФОНА */
+#mic-icon-container {
+    width: 24px;
+    height: 24px;
+    background-repeat: no-repeat;
+    background-position: center;
+    background-size: contain;
+}
+
+.mic-on {
+    background-image: url('/assets/icons/mic_on.svg');
+}
+
+.mic-off {
+    background-image: url('/assets/icons/mic_off.svg');
+}
+
+/* Базовые стили кнопки */
+#mic-btn {
+    width: 50px;
+    height: 50px; /* Укажите нужный размер */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: border-color 0.2s, background 0.1s;
+    border: 2px solid #dc3545; /* По умолчанию выключен */
+}
+
+/* Контейнер для иконки */
+#mic-icon-container {
+    width: 24px;
+    height: 24px;
+    mask-size: contain;
+    mask-repeat: no-repeat;
+    mask-position: center;
+    background-color: #dc3545; /* Цвет иконки (выкл) */
+    /* Путь к иконке "выключено" */
+    -webkit-mask-image: url('/assets/icons/mic_off.svg');
+    mask-image: url('/assets/icons/mic_off.svg');
+}
+
+/* Состояние ON */
+#mic-btn.active {
+    border-color: #fff;
+}
+
+    #mic-btn.active #mic-icon-container {
+        background-color: #fff; /* Цвет иконки (вкл) */
+        -webkit-mask-image: url('/assets/icons/mic_on.svg');
+        mask-image: url('/assets/icons/mic_on.svg');
+    }

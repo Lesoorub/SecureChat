@@ -6,7 +6,7 @@
     btnCreate = document.getElementById("btn-create"),
     btnJoin = document.getElementById("btn-join"),
     settingsModal = document.getElementById("settings-modal"),
-    serverInput = document.getElementById("server-url-input");
+    serverInput = document.getElementById("server-url-input"),
     appVersion = document.getElementById("app-version");
 
 function postToCSharp(action, data = {}) {

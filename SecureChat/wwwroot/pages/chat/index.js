@@ -1,366 +1,205 @@
-﻿const messagesContainer = document.getElementById('messages-container');
-const messageInput = document.getElementById('message-input');
-const sendBtn = document.getElementById('send-btn');
-const callPanel = document.getElementById('call-panel');
-const callStartBtn = document.getElementById('call-start-btn');
-const micBtn = document.getElementById('mic-btn');
-const settingsBtn = document.getElementById('settings-btn');
-const hangupBtn = document.getElementById('hangup-btn');
-const attachBtn = document.getElementById('attach-btn');
-const micIconContainer = document.getElementById('mic-icon-container');
+﻿const chatPanel = new class ChatPanel {
+    messagesContainer = document.getElementById('messages-container');
+    messageInput = document.getElementById('message-input');
+    sendBtn = document.getElementById('send-btn');
+    attachBtn = document.getElementById('attach-btn');
+    backToMainBtn = document.getElementById('back-to-main-btn');
 
+    currentAttachment = { data: null, type: null, name: null };
 
-let currentAttachment = { data: null, type: null, name: null };
+    ICONS = {
+        image: '<svg class="me-2" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>',
+        file: '<svg class="me-2" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><polyline points="13 2 13 9 20 9"></polyline></svg>'
+    };
 
-const ICONS = {
-    image: '<svg class="me-2" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>',
-    file: '<svg class="me-2" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><polyline points="13 2 13 9 20 9"></polyline></svg>'
-};
+    actions = {
+        append_message: d => this.appendMessage(d.role, d.text, d.id, d.status, d.senderName, d.imageUrl),
+        update_message_status: d => this.updateMessageStatus(d.id, d.status),
+        set_attachment: d => this.setAttachment(d.base64Data, d.fileName, d.isImage)
+    };
 
-function postToCSharp(action, data = {}) {
-    if (window.chrome && window.chrome.webview) {
-        window.chrome.webview.postMessage({ action, ...data });
-    }
-}
-const actions = {
-    set_mic_state: d => setMicState(d.value),
-    set_mic_volume: d => setMicVolume(d.value), // Новое действие
-    append_message: d => appendMessage(d.role, d.text, d.id, d.status, d.senderName, d.imageUrl),
-    update_message_status: d => updateMessageStatus(d.id, d.status),
-    sync_participants: d => syncParticipants(d.participants),
-    set_attachment: d => setAttachment(d.base64Data, d.fileName, d.isImage)
-};
+    constructor() {
+        // Слушаем ответ от C#
+        window.chrome.webview.addEventListener('message', event => this.actions[event.data.action]?.(event.data));
 
-// Слушаем ответ от C#
-window.chrome.webview.addEventListener('message', event => {
-    const data = event.data;
+        window.addEventListener('paste', async (event) => {
+            const items = (event.clipboardData || event.originalEvent.clipboardData).items;
 
-    actions[data.action]?.(data);
-});
+            for (const item of items) {
+                // Проверяем, является ли вставленный объект изображением
+                if (item.type.indexOf('image') !== -1) {
+                    const blob = item.getAsFile();
+                    const reader = new FileReader();
 
-window.addEventListener('paste', async (event) => {
-    const items = (event.clipboardData || event.originalEvent.clipboardData).items;
+                    reader.onload = (e) => {
+                        // Используем новую универсальную функцию
+                        // Параметры: base64, имя отображения, флаг "это картинка"
+                        this.setAttachment(e.target.result, "Изображение", true);
+                    };
 
-    for (const item of items) {
-        // Проверяем, является ли вставленный объект изображением
-        if (item.type.indexOf('image') !== -1) {
-            const blob = item.getAsFile();
-            const reader = new FileReader();
+                    reader.readAsDataURL(blob);
 
-            reader.onload = (e) => {
-                // Используем новую универсальную функцию
-                // Параметры: base64, имя отображения, флаг "это картинка"
-                setAttachment(e.target.result, "Изображение", true);
-            };
+                    // Если вставили картинку, обычно текст вставлять не нужно
+                    // event.preventDefault(); 
+                }
+            }
+        });
 
-            reader.readAsDataURL(blob);
+        this.backToMainBtn.addEventListener('click', () => {
+            window.location.href = "https://app.localhost/pages/main/index.html";
+        });
 
-            // Если вставили картинку, обычно текст вставлять не нужно
-            // event.preventDefault(); 
+        this.sendBtn.onclick = () => {
+            const text = this.messageInput.value.trim();
+            // Разрешаем отправку, если есть либо текст, либо вложение
+            if (text || this.currentAttachment.data) {
+                const tempId = 'msg_' + Date.now();
+
+                // Передаем весь объект вложения
+                this.appendMessage('user', text, tempId, 'pending', 'Вы', this.currentAttachment);
+
+                this.postToCSharp('send_message', {
+                    text: text,
+                    id: tempId,
+                    attachment: this.currentAttachment // Отправляем объект {data, type, name}
+                });
+
+                this.messageInput.value = '';
+                this.clearAttachment();
+            }
+        };
+
+        this.messageInput.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter') {
+                event.preventDefault(); // Чтобы страница не перезагружалась, если есть форма
+                this.sendBtn.click(); // Симулируем нажатие кнопки
+            }
+        });
+
+        this.attachBtn.onclick = () => {
+            // Отправляем сообщение в C# через PostMessage
+            // Если ваш IWebView поддерживает PostMessage:
+            this.postToCSharp('open_file_dialog');
         }
     }
-});
 
-function appendMessage(role, text, id = null, status = 'sent', senderName = 'Бот', attachment = null)
-{
-    const template = document.getElementById('message-template');
-    const fragment = template.content.cloneNode(true);
+    postToCSharp(action, data = {}) {
+        if (window.chrome && window.chrome.webview) {
+            window.chrome.webview.postMessage({ action, ...data });
+        }
+    }
 
-    const wrapper = fragment.querySelector('.message-wrapper');
-    const msgDiv = fragment.querySelector('.message');
-    const textSpan = fragment.querySelector('.text-content');
-    const nameDiv = fragment.querySelector('.sender-name');
-    const statusSpan = fragment.querySelector('.status');
+    appendMessage(role, text, id = null, status = 'sent', senderName = 'Бот', attachment = null) {
+        const template = document.getElementById('message-template');
+        const fragment = template.content.cloneNode(true);
 
-    msgDiv.id = id || 'msg_' + Date.now();
-    textSpan.textContent = text;
+        const wrapper = fragment.querySelector('.message-wrapper');
+        const msgDiv = fragment.querySelector('.message');
+        const textSpan = fragment.querySelector('.text-content');
+        const nameDiv = fragment.querySelector('.sender-name');
+        const statusSpan = fragment.querySelector('.status');
 
-    // --- Логика вложений ---
-    if (attachment && attachment.data) {
-        if (attachment.type === 'image') {
-            // Отрисовка картинки
-            const img = document.createElement('img');
-            img.src = attachment.data;
-            img.classList.add('img-fluid', 'rounded-3', 'mb-2');
-            img.style.maxHeight = '300px';
-            img.style.objectFit = 'contain';
-            img.style.display = 'block';
-            msgDiv.insertBefore(img, textSpan);
-        } else {
-            // Отрисовка файла (плашка с иконкой)
-            const fileBox = document.createElement('div');
-            fileBox.className = 'd-flex align-items-center p-2 mb-2 rounded bg-black bg-opacity-10 border border-white border-opacity-25';
-            fileBox.style.cursor = 'pointer';
-            fileBox.innerHTML = `
-                ${ICONS.file}
+        msgDiv.id = id || 'msg_' + Date.now();
+        textSpan.textContent = text;
+
+        // --- Логика вложений ---
+        if (attachment && attachment.data) {
+            if (attachment.type === 'image') {
+                // Отрисовка картинки
+                const img = document.createElement('img');
+                img.src = attachment.data;
+                img.classList.add('img-fluid', 'rounded-3', 'mb-2');
+                img.style.maxHeight = '300px';
+                img.style.objectFit = 'contain';
+                img.style.display = 'block';
+                msgDiv.insertBefore(img, textSpan);
+            } else {
+                // Отрисовка файла (плашка с иконкой)
+                const fileBox = document.createElement('div');
+                fileBox.className = 'd-flex align-items-center p-2 mb-2 rounded bg-black bg-opacity-10 border border-white border-opacity-25';
+                fileBox.style.cursor = 'pointer';
+                fileBox.innerHTML = `
+                ${this.ICONS.file}
                 <small class="text-truncate" style="max-width: 150px;">${attachment.name}</small>
             `;
-            // Опционально: клик по файлу для скачивания/открытия
-            fileBox.onclick = () =>
-            {
-                postToCSharp("try_open_loaded_file", { fileName: attachment.name });
-            };
-            msgDiv.insertBefore(fileBox, textSpan);
-        }
-    }
-
-    if (role === 'system') {
-        // Системное: по центру, жирное, без оформления
-        wrapper.classList.add('align-items-center');
-        msgDiv.classList.add('fw-bold', 'text-muted', 'small', 'text-center');
-        nameDiv.remove();
-        statusSpan.remove();
-    } else if (role === 'user') {
-        // Пользователь: справа, синий фон, тень
-        wrapper.classList.add('align-items-end');
-        // Оставляем bg-primary для обычных сообщений
-        msgDiv.classList.add('bg-primary', 'text-white', 'rounded-4', 'rounded-bottom-end-0', 'shadow-sm', 'border');
-
-        nameDiv.remove();
-        if (status === 'pending') {
-            msgDiv.classList.add('pending-anim');
-        } else if (status === 'error') {
-            msgDiv.classList.add('error-bg');
-        }
-    } else {
-        // Бот: слева, светлый фон, тень
-        wrapper.classList.add('align-items-start');
-        msgDiv.classList.add('bg-light', 'text-dark', 'rounded-4', 'rounded-bottom-start-0', 'shadow-sm', 'border');
-        nameDiv.textContent = senderName;
-        statusSpan.remove();
-    }
-
-    messagesContainer.appendChild(fragment);
-    messagesContainer.scrollTo({ top: messagesContainer.scrollHeight, behavior: 'smooth' });
-}
-
-// Универсальная функция прикрепления
-function setAttachment(base64Data, fileName, isImage) {
-    currentAttachment = { data: base64Data, type: isImage ? 'image' : 'file', name: fileName };
-
-    const container = document.getElementById('attachment-preview');
-    const label = document.getElementById('attachment-label');
-    const badge = document.querySelector('.image-badge');
-
-    // Меняем иконку и текст (обрезаем длинные имена файлов)
-    const displayName = fileName.length > 20 ? fileName.substring(0, 17) + '...' : fileName;
-    label.innerHTML = (isImage ? ICONS.image : ICONS.file) + displayName;
-
-    // Стилизуем под файл, если это не картинка
-    isImage ? badge.classList.remove('file-badge') : badge.classList.add('file-badge');
-
-    container.classList.remove('d-none');
-    setTimeout(() => container.style.opacity = "1", 10);
-}
-
-function clearAttachment() {
-    currentAttachment = { data: null, type: null, name: null };
-    const container = document.getElementById('attachment-preview');
-    container.style.opacity = "0";
-    setTimeout(() => container.classList.add('d-none'), 200);
-}
-
-function updateMessageStatus(id, status)
-{
-    const msg = document.getElementById(id);
-    if (!msg) return;
-
-    // Сначала очищаем все спец-состояния
-    msg.classList.remove('pending-anim', 'error-bg');
-
-    if (status === 'pending') {
-        msg.classList.add('pending-anim');
-    }
-    else if (status === 'error') {
-        msg.classList.add('error-bg');
-    }
-    // Если status === 'sent', мы просто оставили классы пустыми, 
-    // и Bootstrap вернет стандартный bg-primary
-}
-
-document.getElementById('back-to-main-btn').addEventListener('click', () => {
-    window.location.href = "https://app.localhost/pages/main/index.html";
-});
-
-sendBtn.onclick = function () {
-    const text = messageInput.value.trim();
-    // Разрешаем отправку, если есть либо текст, либо вложение
-    if (text || currentAttachment.data) {
-        const tempId = 'msg_' + Date.now();
-
-        // Передаем весь объект вложения
-        appendMessage('user', text, tempId, 'pending', 'Вы', currentAttachment);
-
-        postToCSharp('send_message', {
-            text: text,
-            id: tempId,
-            attachment: currentAttachment // Отправляем объект {data, type, name}
-        });
-
-        messageInput.value = '';
-        clearAttachment();
-    }
-};
-
-// Обработка кнопок управления
-micBtn.onclick = function () {
-    postToCSharp('toggle_mic', { active: !this.classList.contains('active') });
-};
-
-hangupBtn.onclick = () => {
-    toggleCallUI(false);
-    postToCSharp('leave_call');
-};
-
-// Открытие модалки
-settingsBtn.onclick = () => {
-    postToCSharp('open_settings');
-};
-
-// Начать звонок (показать панель)
-callStartBtn.onclick = () => {
-    toggleCallUI(true);
-    postToCSharp('start_call');
-};
-
-// Генерация стабильного цвета на основе строки (имени)
-function stringToColor(str) {
-    let hash = 0;
-    for (let i = 0; i < str.length; i++) {
-        hash = str.charCodeAt(i) + ((hash << 5) - hash);
-    }
-    const c = (hash & 0x00FFFFFF).toString(16).toUpperCase();
-    return "#" + "00000".substring(0, 6 - c.length) + c;
-}
-
-// Получение инициалов (первые две буквы)
-function getInitials(name) {
-    const parts = name.trim().split(/\s+/); // Разбиваем по пробелам, игнорируя лишние
-
-    if (parts.length === 1) {
-        // Если одно слово — берем первые две буквы
-        return parts[0].substring(0, 2).toUpperCase();
-    }
-
-    // Если слов несколько — берем первую букву каждого и склеиваем (до 2-х штук)
-    return parts
-        .map(n => n[0])
-        .join('')
-        .toUpperCase()
-        .substring(0, 2);
-}
-
-function syncParticipants(participants) {
-    const list = document.getElementById('participants-list');
-    const currentIds = new Set(participants.map(p => `user-${p.Id}`));
-
-    // 1. Удаляем тех, кто отключился
-    Array.from(list.children).forEach(el => {
-        if (!currentIds.has(el.id)) el.remove();
-    });
-
-    // 2. Добавляем новых или обновляем существующих
-    participants.forEach(p => {
-        let el = document.getElementById(`user-${p.Id}`);
-
-        if (!el) {
-            // Создаем элемент из шаблона, если его еще нет
-            const template = document.getElementById('participant-template');
-            const fragment = template.content.cloneNode(true);
-
-            // Находим корневой контейнер внутри фрагмента
-            el = fragment.querySelector('.participant');
-            el.id = `user-${p.Id}`;
-
-            const avatar = el.querySelector('.avatar');
-            const nameLabel = el.querySelector('.participant-name');
-
-            // --- Ваша логика отрисовки (как в updateParticipants) ---
-            const bgColor = stringToColor(p.Name);
-            const initials = getInitials(p.Name);
-
-            // Убираем мешающий класс Bootstrap
-            avatar.classList.remove('bg-secondary');
-
-            avatar.style.backgroundColor = bgColor;
-            avatar.style.color = '#fff';
-            avatar.textContent = initials;
-            nameLabel.textContent = p.Name;
-
-            list.appendChild(el);
+                // Опционально: клик по файлу для скачивания/открытия
+                fileBox.onclick = () => {
+                    this.postToCSharp("try_open_loaded_file", { fileName: attachment.name });
+                };
+                msgDiv.insertBefore(fileBox, textSpan);
+            }
         }
 
-        // 3. Обновляем статус индикации голоса (без пересоздания элемента)
-        if (p.IsSpeaking) {
-            el.classList.add('speaking');
+        if (role === 'system') {
+            // Системное: по центру, жирное, без оформления
+            wrapper.classList.add('align-items-center');
+            msgDiv.classList.add('fw-bold', 'text-muted', 'small', 'text-center');
+            nameDiv.remove();
+            statusSpan.remove();
+        } else if (role === 'user') {
+            // Пользователь: справа, синий фон, тень
+            wrapper.classList.add('align-items-end');
+            // Оставляем bg-primary для обычных сообщений
+            msgDiv.classList.add('bg-primary', 'text-white', 'rounded-4', 'rounded-bottom-end-0', 'shadow-sm', 'border');
+
+            nameDiv.remove();
+            if (status === 'pending') {
+                msgDiv.classList.add('pending-anim');
+            } else if (status === 'error') {
+                msgDiv.classList.add('error-bg');
+            }
         } else {
-            el.classList.remove('speaking');
+            // Бот: слева, светлый фон, тень
+            wrapper.classList.add('align-items-start');
+            msgDiv.classList.add('bg-light', 'text-dark', 'rounded-4', 'rounded-bottom-start-0', 'shadow-sm', 'border');
+            nameDiv.textContent = senderName;
+            statusSpan.remove();
         }
-    });
-}
 
-function specialAction(actionType) {
-    postToCSharp(actionType, {});
-}
-
-const icons = {
-    // Вставьте сюда содержимое ваших .svg файлов
-    on: `<svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 0 24 24" width="24px" fill="#c4c7c5"><path d="M0 0h24v24H0z" fill="none"/><path d="M12 14c1.66 0 2.99-1.34 2.99-3L15 5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.3-3c0 3-2.54 5.1-5.3 5.1S6.7 14 6.7 11H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c3.28-.48 6-3.3 6-6.72h-1.7z"/></svg>`,
-    off: `<svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 0 24 24" width="24px" fill="#dc3545"><path d="M0 0h24v24H0zm0 0h24v24H0z" fill="none"/><path d="M19 11h-1.7c0 .74-.16 1.43-.43 2.05l1.23 1.23c.56-.98.9-2.09.9-3.28zm-4.02.17c0-.06.02-.11.02-.17V5c0-1.66-1.34-3-3-3S9 3.34 9 5v.18l5.98 5.99zM4.27 3L3 4.27l6.01 6.01V11c0 1.66 1.33 3 2.99 3 .22 0 .44-.03.65-.08l1.66 1.66c-.71.33-1.5.52-2.31.52-2.76 0-5.3-2.1-5.3-5.1H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c.91-.13 1.77-.45 2.54-.9L19.73 21 21 19.73 4.27 3z"/></svg>`
-};
-
-function setMicState(state) {
-    if (state) {
-        micBtn.classList.add('active');
-        micBtn.style.borderColor = '#fff';
-        micIconContainer.innerHTML = icons.on;
-        micIconContainer.style.color = '#fff';
-    } else {
-        micBtn.classList.remove('active');
-        micBtn.style.borderColor = '#dc3545'; // Красный ободок
-        micIconContainer.innerHTML = icons.off;
-        micIconContainer.style.color = '#dc3545'; // Красная иконка
-        micBtn.style.background = 'transparent'; // Сброс громкости
-    }
-}
-
-function setMicVolume(volume) {
-    if (!micBtn.classList.contains('active')) return;
-
-    const percentage = Math.round(volume * 100);
-    // Накладываем градиент. Важно: иконка (svg) будет поверх фона.
-    micBtn.style.background = `linear-gradient(to top, rgba(40, 167, 69, 0.8) ${percentage}%, transparent ${percentage}%)`;
-}
-
-const toggleCallUI = (show) => {
-    if (show) {
-        // Удаляем d-none (Bootstrap) и скрытый (если был)
-        callPanel.classList.remove('d-none', 'hidden');
-    } else {
-        // Добавляем стандартный класс скрытия Bootstrap
-        callPanel.classList.add('d-none');
+        this.messagesContainer.appendChild(fragment);
+        this.messagesContainer.scrollTo({ top: this.messagesContainer.scrollHeight, behavior: 'smooth' });
     }
 
-    // Прокрутка чата после изменения высоты интерфейса
-    setTimeout(() => {
-        messagesContainer.scrollTo({
-            top: messagesContainer.scrollHeight,
-            behavior: 'smooth'
-        });
-    }, 150);
-};
+    // Универсальная функция прикрепления
+    setAttachment(base64Data, fileName, isImage) {
+        this.currentAttachment = { data: base64Data, type: isImage ? 'image' : 'file', name: fileName };
 
-messageInput.addEventListener('keydown', function (event) {
-    if (event.key === 'Enter') {
-        event.preventDefault(); // Чтобы страница не перезагружалась, если есть форма
-        sendBtn.click(); // Симулируем нажатие кнопки
+        const container = document.getElementById('attachment-preview');
+        const label = document.getElementById('attachment-label');
+        const badge = document.querySelector('.image-badge');
+
+        // Меняем иконку и текст (обрезаем длинные имена файлов)
+        const displayName = fileName.length > 20 ? fileName.substring(0, 17) + '...' : fileName;
+        label.innerHTML = (isImage ? this.ICONS.image : this.ICONS.file) + displayName;
+
+        // Стилизуем под файл, если это не картинка
+        isImage ? badge.classList.remove('file-badge') : badge.classList.add('file-badge');
+
+        container.classList.remove('d-none');
+        setTimeout(() => container.style.opacity = "1", 10);
     }
-});
 
-attachBtn.onclick = function handleAttachClick() {
-    // Отправляем сообщение в C# через PostMessage
-    // Если ваш IWebView поддерживает PostMessage:
-    postToCSharp('open_file_dialog');
-}
+    clearAttachment() {
+        this.currentAttachment = { data: null, type: null, name: null };
+        const container = document.getElementById('attachment-preview');
+        container.style.opacity = "0";
+        setTimeout(() => container.classList.add('d-none'), 200);
+    }
 
-window.onload = () => postToCSharp('get_history');
+    updateMessageStatus(id, status) {
+        const msg = document.getElementById(id);
+        if (!msg) return;
+
+        // Сначала очищаем все спец-состояния
+        msg.classList.remove('pending-anim', 'error-bg');
+
+        if (status === 'pending') {
+            msg.classList.add('pending-anim');
+        }
+        else if (status === 'error') {
+            msg.classList.add('error-bg');
+        }
+        // Если status === 'sent', мы просто оставили классы пустыми, 
+        // и Bootstrap вернет стандартный bg-primary
+    }
+}()

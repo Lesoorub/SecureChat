@@ -1,0 +1,11 @@
+﻿#threshold-range {
+    -webkit-appearance: none;
+    appearance: none;
+    height: 8px;
+    border-radius: 5px;
+    outline: none;
+}
+
+    #threshold-range::-webkit-slider-runnable-track {
+        background: transparent; /* Чтобы был виден наш градиент */
+    }

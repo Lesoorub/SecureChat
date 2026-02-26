@@ -202,6 +202,7 @@ internal class AudioInput
     {
         _isRecording = false;
         _waveIn.StopRecording();
+        CurrentGain = 0f;
     }
 
     public void Dispose()
